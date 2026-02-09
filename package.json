@@ -1,12 +1,12 @@
 {
-  "name": "openclaw",
+  "name": "openclaw-ai-sdk",
   "version": "2026.2.6-3",
   "description": "Multi-channel AI gateway with extensible messaging integrations",
   "keywords": [],
   "license": "MIT",
   "author": "",
   "bin": {
-    "openclaw": "openclaw.mjs"
+    "openclaw-ai-sdk": "openclaw.mjs"
   },
   "files": [
     "assets/",
