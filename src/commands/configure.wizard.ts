@@ -8,6 +8,7 @@ import type {
 import { formatCliCommand } from "../cli/command-format.js";
 import { readConfigFileSnapshot, resolveGatewayPort, writeConfigFile } from "../config/config.js";
 import { logConfigUpdated } from "../config/logging.js";
+import { ensureWebAppBuilt } from "../gateway/server-web-app.js";
 import { ensureControlUiAssetsBuilt } from "../infra/control-ui-assets.js";
 import { defaultRuntime } from "../runtime.js";
 import { note } from "../terminal/note.js";
@@ -591,6 +592,12 @@ export async function runConfigureWizard(
       }
     }
 
+    const webAppResult = await ensureWebAppBuilt(runtime, {
+      webAppConfig: nextConfig.gateway?.webApp,
+    });
+    if (!webAppResult.ok && webAppResult.message) {
+      runtime.error(webAppResult.message);
+    }
     const controlUiAssets = await ensureControlUiAssetsBuilt(runtime);
     if (!controlUiAssets.ok && controlUiAssets.message) {
       runtime.error(controlUiAssets.message);

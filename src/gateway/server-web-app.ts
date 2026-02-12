@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { GatewayWebAppConfig } from "../config/types.gateway.js";
 import { isTruthyEnvValue } from "../infra/env.js";
+import { defaultRuntime, type RuntimeEnv } from "../runtime.js";
 
 export const DEFAULT_WEB_APP_PORT = 3100;
 
@@ -37,6 +38,75 @@ function resolveWebAppDir(): string | null {
 /** Check whether a Next.js production build exists. */
 function hasNextBuild(webAppDir: string): boolean {
   return fs.existsSync(path.join(webAppDir, ".next", "BUILD_ID"));
+}
+
+// ── pre-build ────────────────────────────────────────────────────────────────
+
+export type EnsureWebAppBuiltResult = {
+  ok: boolean;
+  built: boolean;
+  message?: string;
+};
+
+/**
+ * Pre-build the Next.js web app so the gateway can start it immediately.
+ *
+ * Call this before installing/starting the gateway daemon so the first
+ * gateway boot doesn't block on `next build`.  Skips silently when the
+ * web app feature is disabled, already built, or not applicable (e.g.
+ * global npm install without `apps/web`).
+ */
+export async function ensureWebAppBuilt(
+  runtime: RuntimeEnv = defaultRuntime,
+  opts?: { webAppConfig?: GatewayWebAppConfig },
+): Promise<EnsureWebAppBuiltResult> {
+  if (isTruthyEnvValue(process.env.OPENCLAW_SKIP_WEB_APP)) {
+    return { ok: true, built: false };
+  }
+  if (opts?.webAppConfig && opts.webAppConfig.enabled === false) {
+    return { ok: true, built: false };
+  }
+  // Dev mode uses `next dev` which compiles on-the-fly — no pre-build needed.
+  if (opts?.webAppConfig?.dev) {
+    return { ok: true, built: false };
+  }
+
+  const webAppDir = resolveWebAppDir();
+  if (!webAppDir) {
+    // No apps/web directory (e.g. global install) — nothing to build.
+    return { ok: true, built: false };
+  }
+
+  if (hasNextBuild(webAppDir)) {
+    return { ok: true, built: false };
+  }
+
+  const log = {
+    info: (msg: string) => runtime.log(msg),
+    warn: (msg: string) => runtime.error(msg),
+  };
+
+  try {
+    await ensureDepsInstalled(webAppDir, log);
+    runtime.log("Web app not built; building for production (next build)…");
+    await runCommand("npx", ["next", "build"], webAppDir, log);
+  } catch (err) {
+    return {
+      ok: false,
+      built: false,
+      message: `Web app pre-build failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  if (!hasNextBuild(webAppDir)) {
+    return {
+      ok: false,
+      built: true,
+      message: "Web app build completed but .next/BUILD_ID is still missing.",
+    };
+  }
+
+  return { ok: true, built: true };
 }
 
 /**
