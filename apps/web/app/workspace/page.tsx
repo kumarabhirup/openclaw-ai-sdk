@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { WorkspaceSidebar } from "../components/workspace/workspace-sidebar";
-import { type TreeNode } from "../components/workspace/knowledge-tree";
+import { type TreeNode } from "../components/workspace/file-manager-tree";
+import { useWorkspaceWatcher } from "../hooks/use-workspace-watcher";
 import { ObjectTable } from "../components/workspace/object-table";
 import { ObjectKanban } from "../components/workspace/object-kanban";
 import { DocumentView } from "../components/workspace/document-view";
@@ -12,6 +13,7 @@ import { DatabaseViewer } from "../components/workspace/database-viewer";
 import { Breadcrumbs } from "../components/workspace/breadcrumbs";
 import { EmptyState } from "../components/workspace/empty-state";
 import { ReportViewer } from "../components/charts/report-viewer";
+import { ChatPanel } from "../components/chat-panel";
 
 // --- Types ---
 
@@ -21,6 +23,14 @@ type WorkspaceContext = {
   members?: Array<{ id: string; name: string; email: string; role: string }>;
 };
 
+type ReverseRelation = {
+  fieldName: string;
+  sourceObjectName: string;
+  sourceObjectId: string;
+  displayField: string;
+  entries: Record<string, Array<{ id: string; label: string }>>;
+};
+
 type ObjectData = {
   object: {
     id: string;
@@ -28,6 +38,7 @@ type ObjectData = {
     description?: string;
     icon?: string;
     default_view?: string;
+    display_field?: string;
   };
   fields: Array<{
     id: string;
@@ -36,6 +47,9 @@ type ObjectData = {
     enum_values?: string[];
     enum_colors?: string[];
     enum_multiple?: boolean;
+    related_object_id?: string;
+    relationship_type?: string;
+    related_object_name?: string;
     sort_order?: number;
   }>;
   statuses: Array<{
@@ -45,6 +59,9 @@ type ObjectData = {
     sort_order?: number;
   }>;
   entries: Record<string, unknown>[];
+  relationLabels?: Record<string, Record<string, string>>;
+  reverseRelations?: ReverseRelation[];
+  effectiveDisplayField?: string;
 };
 
 type FileData = {
@@ -91,47 +108,48 @@ export default function WorkspacePage() {
   const searchParams = useSearchParams();
   const initialPathHandled = useRef(false);
 
-  const [tree, setTree] = useState<TreeNode[]>([]);
+  // Live-reactive tree via SSE watcher
+  const { tree, loading: treeLoading, exists: workspaceExists, refresh: refreshTree } = useWorkspaceWatcher();
+
   const [context, setContext] = useState<WorkspaceContext | null>(null);
   const [activePath, setActivePath] = useState<string | null>(null);
   const [content, setContent] = useState<ContentState>({ kind: "none" });
-  const [treeLoading, setTreeLoading] = useState(true);
-  const [workspaceExists, setWorkspaceExists] = useState(true);
+  const [showChatSidebar, setShowChatSidebar] = useState(true);
 
-  // Fetch tree and context on mount
+  // Derive file context for chat sidebar directly from activePath (stable across loading)
+  const fileContext = useMemo(() => {
+    if (!activePath) {return undefined;}
+    const filename = activePath.split("/").pop() || activePath;
+    return { path: activePath, filename };
+  }, [activePath]);
+
+  // Update content state when the agent edits the file (live reload)
+  const handleFileChanged = useCallback((newContent: string) => {
+    setContent((prev) => {
+      if (prev.kind === "document") {
+        return { ...prev, data: { ...prev.data, content: newContent } };
+      }
+      if (prev.kind === "file") {
+        return { ...prev, data: { ...prev.data, content: newContent } };
+      }
+      return prev;
+    });
+  }, []);
+
+  // Fetch workspace context on mount
   useEffect(() => {
     let cancelled = false;
-
-    async function load() {
-      setTreeLoading(true);
+    async function loadContext() {
       try {
-        const [treeRes, ctxRes] = await Promise.all([
-          fetch("/api/workspace/tree"),
-          fetch("/api/workspace/context"),
-        ]);
-
-        const treeData = await treeRes.json();
-        const ctxData = await ctxRes.json();
-
-        if (cancelled) {return;}
-
-        setTree(treeData.tree ?? []);
-        setWorkspaceExists(treeData.exists ?? false);
-        setContext(ctxData);
+        const res = await fetch("/api/workspace/context");
+        const data = await res.json();
+        if (!cancelled) {setContext(data);}
       } catch {
-        if (!cancelled) {
-          setTree([]);
-          setWorkspaceExists(false);
-        }
-      } finally {
-        if (!cancelled) {setTreeLoading(false);}
+        // ignore
       }
     }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
+    loadContext();
+    return () => { cancelled = true; };
   }, []);
 
   // Load content when path changes
@@ -165,10 +183,8 @@ export default function WorkspacePage() {
             title: node.name.replace(/\.md$/, ""),
           });
         } else if (node.type === "database") {
-          // Database files are handled entirely by the DatabaseViewer component
           setContent({ kind: "database", dbPath: node.path, filename: node.name });
         } else if (node.type === "report") {
-          // Report files are handled entirely by the ReportViewer component
           setContent({ kind: "report", reportPath: node.path, filename: node.name });
         } else if (node.type === "file") {
           const res = await fetch(
@@ -226,6 +242,42 @@ export default function WorkspacePage() {
     [tree, loadContent],
   );
 
+  // Navigate to an object by name (used by relation links)
+  const handleNavigateToObject = useCallback(
+    (objectName: string) => {
+      // Find the object node in the tree
+      function findObjectNode(nodes: TreeNode[]): TreeNode | null {
+        for (const node of nodes) {
+          if (node.type === "object" && objectNameFromPath(node.path) === objectName) {
+            return node;
+          }
+          if (node.children) {
+            const found = findObjectNode(node.children);
+            if (found) {return found;}
+          }
+        }
+        return null;
+      }
+      const node = findObjectNode(tree);
+      if (node) {loadContent(node);}
+    },
+    [tree, loadContent],
+  );
+
+  // Refresh the currently displayed object (e.g. after changing display field)
+  const refreshCurrentObject = useCallback(async () => {
+    if (content.kind !== "object") {return;}
+    const name = content.data.object.name;
+    try {
+      const res = await fetch(`/api/workspace/objects/${encodeURIComponent(name)}`);
+      if (!res.ok) {return;}
+      const data: ObjectData = await res.json();
+      setContent({ kind: "object", data });
+    } catch {
+      // ignore
+    }
+  }, [content]);
+
   return (
     <div className="flex h-screen" style={{ background: "var(--color-bg)" }}>
       {/* Sidebar */}
@@ -233,6 +285,7 @@ export default function WorkspacePage() {
         tree={tree}
         activePath={activePath}
         onSelect={handleNodeSelect}
+        onRefresh={refreshTree}
         orgName={context?.organization?.name}
         loading={treeLoading}
       />
@@ -242,25 +295,63 @@ export default function WorkspacePage() {
         {/* Top bar with breadcrumbs */}
         {activePath && (
           <div
-            className="px-6 border-b flex-shrink-0"
+            className="px-6 border-b flex-shrink-0 flex items-center justify-between"
             style={{ borderColor: "var(--color-border)" }}
           >
             <Breadcrumbs
               path={activePath}
               onNavigate={handleBreadcrumbNavigate}
             />
+            {/* Chat sidebar toggle */}
+            <button
+              type="button"
+              onClick={() => setShowChatSidebar((v) => !v)}
+              className="p-1.5 rounded-md transition-colors flex-shrink-0"
+              style={{
+                color: showChatSidebar ? "var(--color-accent)" : "var(--color-text-muted)",
+                background: showChatSidebar ? "rgba(232, 93, 58, 0.1)" : "transparent",
+              }}
+              title={showChatSidebar ? "Hide chat" : "Chat about this file"}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+            </button>
           </div>
         )}
 
-        {/* Content area */}
-        <div className="flex-1 overflow-y-auto">
-          <ContentRenderer
-            content={content}
-            workspaceExists={workspaceExists}
-            tree={tree}
-            members={context?.members}
-            onNodeSelect={handleNodeSelect}
-          />
+        {/* Content + Chat sidebar row */}
+        <div className="flex-1 flex min-h-0">
+          {/* Content area */}
+          <div className="flex-1 overflow-y-auto">
+            <ContentRenderer
+              content={content}
+              workspaceExists={workspaceExists}
+              tree={tree}
+              members={context?.members}
+              onNodeSelect={handleNodeSelect}
+              onNavigateToObject={handleNavigateToObject}
+              onRefreshObject={refreshCurrentObject}
+            />
+          </div>
+
+          {/* Chat sidebar (file-scoped) */}
+          {fileContext && showChatSidebar && (
+            <aside
+              className="flex-shrink-0 border-l"
+              style={{
+                width: 380,
+                borderColor: "var(--color-border)",
+                background: "var(--color-bg)",
+              }}
+            >
+              <ChatPanel
+                compact
+                fileContext={fileContext}
+                onFileChanged={handleFileChanged}
+              />
+            </aside>
+          )}
         </div>
       </main>
     </div>
@@ -275,12 +366,16 @@ function ContentRenderer({
   tree,
   members,
   onNodeSelect,
+  onNavigateToObject,
+  onRefreshObject,
 }: {
   content: ContentState;
   workspaceExists: boolean;
   tree: TreeNode[];
   members?: Array<{ id: string; name: string; email: string; role: string }>;
   onNodeSelect: (node: TreeNode) => void;
+  onNavigateToObject: (objectName: string) => void;
+  onRefreshObject: () => void;
 }) {
   switch (content.kind) {
     case "loading":
@@ -298,65 +393,12 @@ function ContentRenderer({
 
     case "object":
       return (
-        <div className="p-6">
-          {/* Object header */}
-          <div className="mb-6">
-            <h1
-              className="text-2xl font-bold capitalize"
-              style={{ color: "var(--color-text)" }}
-            >
-              {content.data.object.name}
-            </h1>
-            {content.data.object.description && (
-              <p
-                className="text-sm mt-1"
-                style={{ color: "var(--color-text-muted)" }}
-              >
-                {content.data.object.description}
-              </p>
-            )}
-            <div className="flex items-center gap-3 mt-3">
-              <span
-                className="text-xs px-2 py-1 rounded-full"
-                style={{
-                  background: "var(--color-surface)",
-                  color: "var(--color-text-muted)",
-                  border: "1px solid var(--color-border)",
-                }}
-              >
-                {content.data.entries.length} entries
-              </span>
-              <span
-                className="text-xs px-2 py-1 rounded-full"
-                style={{
-                  background: "var(--color-surface)",
-                  color: "var(--color-text-muted)",
-                  border: "1px solid var(--color-border)",
-                }}
-              >
-                {content.data.fields.length} fields
-              </span>
-            </div>
-          </div>
-
-          {/* Table or Kanban */}
-          {content.data.object.default_view === "kanban" ? (
-            <ObjectKanban
-              objectName={content.data.object.name}
-              fields={content.data.fields}
-              entries={content.data.entries}
-              statuses={content.data.statuses}
-              members={members}
-            />
-          ) : (
-            <ObjectTable
-              objectName={content.data.object.name}
-              fields={content.data.fields}
-              entries={content.data.entries}
-              members={members}
-            />
-          )}
-        </div>
+        <ObjectView
+          data={content.data}
+          members={members}
+          onNavigateToObject={onNavigateToObject}
+          onRefreshObject={onRefreshObject}
+        />
       );
 
     case "document":
@@ -406,6 +448,189 @@ function ContentRenderer({
       }
       return <WelcomeView tree={tree} onNodeSelect={onNodeSelect} />;
   }
+}
+
+// --- Object View (header + display field selector + table/kanban) ---
+
+function ObjectView({
+  data,
+  members,
+  onNavigateToObject,
+  onRefreshObject,
+}: {
+  data: ObjectData;
+  members?: Array<{ id: string; name: string; email: string; role: string }>;
+  onNavigateToObject: (objectName: string) => void;
+  onRefreshObject: () => void;
+}) {
+  const [updatingDisplayField, setUpdatingDisplayField] = useState(false);
+
+  const handleDisplayFieldChange = async (fieldName: string) => {
+    setUpdatingDisplayField(true);
+    try {
+      const res = await fetch(
+        `/api/workspace/objects/${encodeURIComponent(data.object.name)}/display-field`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ displayField: fieldName }),
+        },
+      );
+      if (res.ok) {
+        // Refresh the object data to get updated relation labels
+        onRefreshObject();
+      }
+    } catch {
+      // ignore
+    } finally {
+      setUpdatingDisplayField(false);
+    }
+  };
+
+  // Fields eligible to be the display field (text-like types)
+  const displayFieldCandidates = data.fields.filter(
+    (f) => !["relation", "boolean", "richtext"].includes(f.type),
+  );
+
+  const hasRelationFields = data.fields.some((f) => f.type === "relation");
+  const hasReverseRelations =
+    data.reverseRelations && data.reverseRelations.some(
+      (rr) => Object.keys(rr.entries).length > 0,
+    );
+
+  return (
+    <div className="p-6">
+      {/* Object header */}
+      <div className="mb-6">
+        <h1
+          className="text-2xl font-bold capitalize"
+          style={{ color: "var(--color-text)" }}
+        >
+          {data.object.name}
+        </h1>
+        {data.object.description && (
+          <p
+            className="text-sm mt-1"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            {data.object.description}
+          </p>
+        )}
+        <div className="flex items-center gap-3 mt-3 flex-wrap">
+          <span
+            className="text-xs px-2 py-1 rounded-full"
+            style={{
+              background: "var(--color-surface)",
+              color: "var(--color-text-muted)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            {data.entries.length} entries
+          </span>
+          <span
+            className="text-xs px-2 py-1 rounded-full"
+            style={{
+              background: "var(--color-surface)",
+              color: "var(--color-text-muted)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            {data.fields.length} fields
+          </span>
+
+          {/* Relation info badges */}
+          {hasRelationFields && (
+            <span
+              className="text-xs px-2 py-1 rounded-full"
+              style={{
+                background: "rgba(96, 165, 250, 0.08)",
+                color: "#60a5fa",
+                border: "1px solid rgba(96, 165, 250, 0.2)",
+              }}
+            >
+              {data.fields.filter((f) => f.type === "relation").length} relation{data.fields.filter((f) => f.type === "relation").length !== 1 ? "s" : ""}
+            </span>
+          )}
+          {hasReverseRelations && (
+            <span
+              className="text-xs px-2 py-1 rounded-full"
+              style={{
+                background: "rgba(192, 132, 252, 0.08)",
+                color: "#c084fc",
+                border: "1px solid rgba(192, 132, 252, 0.2)",
+              }}
+            >
+              {data.reverseRelations!.filter((rr) => Object.keys(rr.entries).length > 0).length} linked from
+            </span>
+          )}
+        </div>
+
+        {/* Display field selector */}
+        {displayFieldCandidates.length > 0 && (
+          <div className="flex items-center gap-2 mt-3">
+            <span
+              className="text-xs"
+              style={{ color: "var(--color-text-muted)" }}
+            >
+              Display field:
+            </span>
+            <select
+              value={data.effectiveDisplayField ?? ""}
+              onChange={(e) => handleDisplayFieldChange(e.target.value)}
+              disabled={updatingDisplayField}
+              className="text-xs px-2 py-1 rounded-md outline-none transition-colors cursor-pointer"
+              style={{
+                background: "var(--color-surface)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border)",
+                opacity: updatingDisplayField ? 0.5 : 1,
+              }}
+            >
+              {displayFieldCandidates.map((f) => (
+                <option key={f.id} value={f.name}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+            {updatingDisplayField && (
+              <div
+                className="w-3 h-3 border border-t-transparent rounded-full animate-spin"
+                style={{ borderColor: "var(--color-text-muted)" }}
+              />
+            )}
+            <span
+              className="text-[10px]"
+              style={{ color: "var(--color-text-muted)", opacity: 0.6 }}
+            >
+              Used when other objects link here
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Table or Kanban */}
+      {data.object.default_view === "kanban" ? (
+        <ObjectKanban
+          objectName={data.object.name}
+          fields={data.fields}
+          entries={data.entries}
+          statuses={data.statuses}
+          members={members}
+          relationLabels={data.relationLabels}
+        />
+      ) : (
+        <ObjectTable
+          objectName={data.object.name}
+          fields={data.fields}
+          entries={data.entries}
+          members={members}
+          relationLabels={data.relationLabels}
+          reverseRelations={data.reverseRelations}
+          onNavigateToObject={onNavigateToObject}
+        />
+      )}
+    </div>
+  );
 }
 
 // --- Directory Listing ---

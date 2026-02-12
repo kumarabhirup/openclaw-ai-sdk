@@ -1,11 +1,12 @@
 "use client";
 
-import { KnowledgeTree, type TreeNode } from "./knowledge-tree";
+import { FileManagerTree, type TreeNode } from "./file-manager-tree";
 
 type WorkspaceSidebarProps = {
   tree: TreeNode[];
   activePath: string | null;
   onSelect: (node: TreeNode) => void;
+  onRefresh: () => void;
   orgName?: string;
   loading?: boolean;
 };
@@ -33,6 +34,7 @@ export function WorkspaceSidebar({
   tree,
   activePath,
   onSelect,
+  onRefresh,
   orgName,
   loading,
 }: WorkspaceSidebarProps) {
@@ -84,10 +86,11 @@ export function WorkspaceSidebar({
             />
           </div>
         ) : (
-          <KnowledgeTree
+          <FileManagerTree
             tree={tree}
             activePath={activePath}
             onSelect={onSelect}
+            onRefresh={onRefresh}
           />
         )}
       </div>

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
+import { FileManagerTree } from "./workspace/file-manager-tree";
 
 // --- Types ---
 
@@ -209,150 +210,15 @@ function MemoriesSection({
   );
 }
 
-// --- Workspace Section ---
+// --- Workspace Section (uses FileManagerTree in compact mode) ---
 
-function WorkspaceTreeNode({
-  node,
-  depth,
-  expanded,
-  onToggle,
-}: {
-  node: TreeNode;
-  depth: number;
-  expanded: Set<string>;
-  onToggle: (path: string) => void;
-}) {
-  const hasChildren = node.children && node.children.length > 0;
-  const isExpandable = hasChildren || node.type === "folder" || node.type === "object";
-  const isOpen = expanded.has(node.path);
-
-  const iconColor =
-    node.type === "object"
-      ? "var(--color-accent)"
-      : node.type === "document"
-        ? "#60a5fa"
-        : node.type === "database"
-          ? "#c084fc"
-          : node.type === "report"
-            ? "#22c55e"
-            : "var(--color-text-muted)";
-
-  return (
-    <div>
-      <div
-        className="flex items-center gap-1.5 py-1 px-2 rounded-md text-sm cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
-        style={{ paddingLeft: `${depth * 14 + 8}px`, color: "var(--color-text-muted)" }}
-        onClick={() => {
-          if (isExpandable) {onToggle(node.path);}
-          // Navigate to workspace page for actionable items
-          if (node.type === "object" || node.type === "document" || node.type === "file" || node.type === "database" || node.type === "report") {
-            window.location.href = `/workspace?path=${encodeURIComponent(node.path)}`;
-          }
-        }}
-      >
-        {/* Chevron */}
-        <span className="w-3.5 flex-shrink-0 flex items-center justify-center" style={{ opacity: isExpandable ? 1 : 0 }}>
-          {isExpandable && (
-            <svg
-              width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-              style={{ transform: isOpen ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 150ms" }}
-            >
-              <path d="m9 18 6-6-6-6" />
-            </svg>
-          )}
-        </span>
-
-        {/* Icon */}
-        <span className="flex-shrink-0" style={{ color: iconColor }}>
-          {node.type === "object" ? (
-            node.defaultView === "kanban" ? (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect width="6" height="14" x="2" y="5" rx="1" /><rect width="6" height="10" x="9" y="5" rx="1" /><rect width="6" height="16" x="16" y="3" rx="1" />
-              </svg>
-            ) : (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 3v18" /><rect width="18" height="18" x="3" y="3" rx="2" /><path d="M3 9h18" /><path d="M3 15h18" />
-              </svg>
-            )
-          ) : node.type === "document" ? (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v4a2 2 0 0 0 2 2h4" /><path d="M10 9H8" /><path d="M16 13H8" /><path d="M16 17H8" />
-            </svg>
-          ) : node.type === "folder" ? (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
-            </svg>
-          ) : node.type === "database" ? (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <ellipse cx="12" cy="5" rx="9" ry="3" />
-              <path d="M3 5V19A9 3 0 0 0 21 19V5" />
-              <path d="M3 12A9 3 0 0 0 21 12" />
-            </svg>
-          ) : node.type === "report" ? (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="12" x2="12" y1="20" y2="10" />
-              <line x1="18" x2="18" y1="20" y2="4" />
-              <line x1="6" x2="6" y1="20" y2="14" />
-            </svg>
-          ) : (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v4a2 2 0 0 0 2 2h4" />
-            </svg>
-          )}
-        </span>
-
-        {/* Name */}
-        <span className="truncate flex-1 text-xs">{node.name.replace(/\.md$/, "")}</span>
-
-        {/* Type badge for objects */}
-        {node.type === "object" && (
-          <span
-            className="text-[9px] px-1 py-0 rounded flex-shrink-0"
-            style={{ background: "rgba(232,93,58,0.15)", color: "var(--color-accent)" }}
-          >
-            {node.defaultView === "kanban" ? "board" : "table"}
-          </span>
-        )}
-      </div>
-
-      {isOpen && hasChildren && (
-        <div>
-          {node.children!.map((child) => (
-            <WorkspaceTreeNode
-              key={child.path}
-              node={child}
-              depth={depth + 1}
-              expanded={expanded}
-              onToggle={onToggle}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function WorkspaceSection({ tree }: { tree: TreeNode[] }) {
-  const [expanded, setExpanded] = useState<Set<string>>(() => {
-    // Auto-expand first level
-    const initial = new Set<string>();
-    for (const node of tree) {
-      if (node.children && node.children.length > 0) {
-        initial.add(node.path);
-      }
+function WorkspaceSection({ tree, onRefresh }: { tree: TreeNode[]; onRefresh: () => void }) {
+  const handleSelect = useCallback((node: TreeNode) => {
+    // Navigate to workspace page for actionable items
+    if (node.type === "object" || node.type === "document" || node.type === "file" || node.type === "database" || node.type === "report") {
+      window.location.href = `/workspace?path=${encodeURIComponent(node.path)}`;
     }
-    return initial;
-  });
-
-  const toggle = (path: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) {next.delete(path);}
-      else {next.add(path);}
-      return next;
-    });
-  };
+  }, []);
 
   if (tree.length === 0) {
     return (
@@ -364,15 +230,13 @@ function WorkspaceSection({ tree }: { tree: TreeNode[] }) {
 
   return (
     <div className="space-y-0.5">
-      {tree.map((node) => (
-        <WorkspaceTreeNode
-          key={node.path}
-          node={node}
-          depth={0}
-          expanded={expanded}
-          onToggle={toggle}
-        />
-      ))}
+      <FileManagerTree
+        tree={tree}
+        activePath={null}
+        onSelect={handleSelect}
+        onRefresh={onRefresh}
+        compact
+      />
 
       {/* Full workspace link */}
       <a
@@ -523,6 +387,16 @@ export function Sidebar({
     load();
   }, [refreshKey]);
 
+  const refreshWorkspace = useCallback(async () => {
+    try {
+      const res = await fetch("/api/workspace/tree");
+      const data = await res.json();
+      setWorkspaceTree(data.tree ?? []);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   return (
     <aside className="w-72 h-screen flex flex-col bg-[var(--color-surface)] border-r border-[var(--color-border)] overflow-hidden">
       {/* Header with New Chat button */}
@@ -569,7 +443,7 @@ export function Sidebar({
                   onToggle={() => toggleSection("workspace")}
                 />
                 {openSections.has("workspace") && (
-                  <WorkspaceSection tree={workspaceTree} />
+                  <WorkspaceSection tree={workspaceTree} onRefresh={refreshWorkspace} />
                 )}
               </div>
             )}

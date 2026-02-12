@@ -11,6 +11,9 @@
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.75",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "ai": "^6.0.73",
     "next": "^15.3.3",
     "react": "^19.1.0",

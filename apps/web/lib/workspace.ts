@@ -91,6 +91,52 @@ export function duckdbQuery<T = Record<string, unknown>>(
   }
 }
 
+/**
+ * Execute a DuckDB statement (no JSON output expected).
+ * Used for INSERT/UPDATE/ALTER operations.
+ */
+export function duckdbExec(sql: string): boolean {
+  const db = duckdbPath();
+  if (!db) {return false;}
+
+  const bin = resolveDuckdbBin();
+  if (!bin) {return false;}
+
+  try {
+    const escapedSql = sql.replace(/'/g, "'\\''");
+    execSync(`'${bin}' '${db}' '${escapedSql}'`, {
+      encoding: "utf-8",
+      timeout: 10_000,
+      shell: "/bin/sh",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Parse a relation field value which may be a single ID or a JSON array of IDs.
+ * Handles both many_to_one (single ID string) and many_to_many (JSON array).
+ */
+export function parseRelationValue(value: string | null | undefined): string[] {
+  if (!value) {return [];}
+  const trimmed = value.trim();
+  if (!trimmed) {return [];}
+
+  // Try JSON array first (many-to-many)
+  if (trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {return parsed.map(String).filter(Boolean);}
+    } catch {
+      // not valid JSON array, treat as single value
+    }
+  }
+
+  return [trimmed];
+}
+
 /** Database file extensions that trigger the database viewer. */
 export const DB_EXTENSIONS = new Set([
   "duckdb",
@@ -204,6 +250,40 @@ export function parseSimpleYaml(
   }
 
   return result;
+}
+
+// --- System file protection ---
+
+const SYSTEM_FILE_PATTERNS = [
+  /^\.object\.yaml$/,
+  /^workspace\.duckdb/,
+  /^workspace_context\.yaml$/,
+  /\.wal$/,
+  /\.tmp$/,
+];
+
+/** Check if a workspace-relative path refers to a protected system file. */
+export function isSystemFile(relativePath: string): boolean {
+  const base = relativePath.split("/").pop() ?? "";
+  return SYSTEM_FILE_PATTERNS.some((p) => p.test(base));
+}
+
+/**
+ * Like safeResolvePath but does NOT require the target to exist on disk.
+ * Useful for mkdir / create / rename-target validation.
+ * Still prevents path traversal.
+ */
+export function safeResolveNewPath(relativePath: string): string | null {
+  const root = resolveDenchRoot();
+  if (!root) {return null;}
+
+  const normalized = normalize(relativePath);
+  if (normalized.startsWith("..") || normalized.includes("/../")) {return null;}
+
+  const absolute = resolve(root, normalized);
+  if (!absolute.startsWith(resolve(root))) {return null;}
+
+  return absolute;
 }
 
 /**

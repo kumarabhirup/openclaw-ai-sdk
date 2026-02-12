@@ -8,6 +8,7 @@ type Field = {
   type: string;
   enum_values?: string[];
   enum_colors?: string[];
+  related_object_name?: string;
 };
 
 type Status = {
@@ -23,7 +24,25 @@ type ObjectKanbanProps = {
   entries: Record<string, unknown>[];
   statuses: Status[];
   members?: Array<{ id: string; name: string }>;
+  relationLabels?: Record<string, Record<string, string>>;
 };
+
+// --- Helpers ---
+
+function parseRelationValue(value: string | null | undefined): string[] {
+  if (!value) {return [];}
+  const trimmed = value.trim();
+  if (!trimmed) {return [];}
+  if (trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {return parsed.map(String).filter(Boolean);}
+    } catch {
+      // not valid JSON
+    }
+  }
+  return [trimmed];
+}
 
 // --- Card component ---
 
@@ -31,10 +50,12 @@ function KanbanCard({
   entry,
   fields,
   members,
+  relationLabels,
 }: {
   entry: Record<string, unknown>;
   fields: Field[];
   members?: Array<{ id: string; name: string }>;
+  relationLabels?: Record<string, Record<string, string>>;
 }) {
   // Show first 4 non-status fields
   const displayFields = fields
@@ -90,11 +111,16 @@ function KanbanCard({
             const val = entry[field.name];
             if (!val) {return null;}
 
-            // Resolve user fields
+            // Resolve display value based on field type
             let displayVal = String(val);
             if (field.type === "user") {
               const member = members?.find((m) => m.id === displayVal);
               if (member) {displayVal = member.name;}
+            } else if (field.type === "relation") {
+              const fieldLabels = relationLabels?.[field.name];
+              const ids = parseRelationValue(displayVal);
+              const labels = ids.map((id) => fieldLabels?.[id] ?? id);
+              displayVal = labels.join(", ");
             }
 
             return (
@@ -104,10 +130,32 @@ function KanbanCard({
                 </span>
                 {field.type === "enum" ? (
                   <EnumBadgeMini
-                    value={displayVal}
+                    value={String(val)}
                     enumValues={field.enum_values}
                     enumColors={field.enum_colors}
                   />
+                ) : field.type === "relation" ? (
+                  <span
+                    className="truncate inline-flex items-center gap-0.5"
+                    style={{ color: "#60a5fa" }}
+                  >
+                    <svg
+                      width="8"
+                      height="8"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="flex-shrink-0"
+                      style={{ opacity: 0.5 }}
+                    >
+                      <path d="M7 7h10v10" />
+                      <path d="M7 17 17 7" />
+                    </svg>
+                    {displayVal}
+                  </span>
                 ) : (
                   <span
                     className="truncate"
@@ -157,6 +205,7 @@ export function ObjectKanban({
   entries,
   statuses,
   members,
+  relationLabels,
 }: ObjectKanbanProps) {
   // Find the grouping field: prefer a "Status" enum field, fallback to first enum
   const groupField = useMemo(() => {
@@ -283,6 +332,7 @@ export function ObjectKanban({
                     entry={entry}
                     fields={cardFields}
                     members={members}
+                    relationLabels={relationLabels}
                   />
                 ))
               )}
@@ -322,6 +372,7 @@ export function ObjectKanban({
                 entry={entry}
                 fields={cardFields}
                 members={members}
+                relationLabels={relationLabels}
               />
             ))}
           </div>
