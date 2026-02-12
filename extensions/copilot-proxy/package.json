@@ -4,7 +4,7 @@
   "description": "OpenClaw Copilot Proxy provider plugin",
   "type": "module",
   "devDependencies": {
-    "openclaw": "workspace:*"
+    "ironclaw": "workspace:*"
   },
   "openclaw": {
     "extensions": [

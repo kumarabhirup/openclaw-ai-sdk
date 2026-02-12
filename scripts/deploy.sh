@@ -176,11 +176,6 @@ npm version "$VERSION" --no-git-tag-version --allow-same-version "${NPM_FLAGS[@]
 if [[ "$SKIP_BUILD" != true ]]; then
   echo "building..."
   pnpm build
-
-  # Build the Ironclaw Next.js web app so the npm package ships a ready-to-run
-  # production build (gateway can skip the build step at startup).
-  echo "building web app..."
-  (cd apps/web && npm install --legacy-peer-deps && npx next build)
 fi
 
 # ── publish ──────────────────────────────────────────────────────────────────

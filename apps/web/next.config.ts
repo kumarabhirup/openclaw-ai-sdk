@@ -1,10 +1,6 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Produce a self-contained build in .next/standalone so the npm package
-  // can run `node .next/standalone/server.js` without a full node_modules.
-  output: "standalone",
-
   // Allow long-running API routes for agent streaming
   serverExternalPackages: [],
 

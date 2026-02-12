@@ -4,7 +4,7 @@
   "description": "OpenClaw JSON-only LLM task plugin",
   "type": "module",
   "devDependencies": {
-    "openclaw": "workspace:*"
+    "ironclaw": "workspace:*"
   },
   "openclaw": {
     "extensions": [

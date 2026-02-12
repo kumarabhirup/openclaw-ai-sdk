@@ -9,11 +9,7 @@
     "ironclaw": "openclaw.mjs"
   },
   "files": [
-    "apps/web/.next/standalone/",
-    "apps/web/.next/static/",
-    "apps/web/public/",
-    "apps/web/package.json",
-    "apps/web/next.config.ts",
+    "apps/web/",
     "assets/",
     "CHANGELOG.md",
     "dist/",

@@ -15,8 +15,7 @@ export type WebAppHandle = {
 
 /**
  * Resolve the `apps/web` directory relative to the package root.
- * Walks up from the current module until we find the workspace root
- * (identified by the presence of `apps/web/package.json`).
+ * Walks up from the current module until we find `apps/web/package.json`.
  */
 function resolveWebAppDir(): string | null {
   const __filename = fileURLToPath(import.meta.url);
@@ -35,12 +34,7 @@ function resolveWebAppDir(): string | null {
   return null;
 }
 
-/** Check whether a Next.js standalone build exists (from `output: "standalone"`). */
-function hasStandaloneBuild(webAppDir: string): boolean {
-  return fs.existsSync(path.join(webAppDir, ".next", "standalone", "server.js"));
-}
-
-/** Check whether a regular Next.js production build exists. */
+/** Check whether a Next.js production build exists. */
 function hasNextBuild(webAppDir: string): boolean {
   return fs.existsSync(path.join(webAppDir, ".next", "BUILD_ID"));
 }
@@ -48,11 +42,14 @@ function hasNextBuild(webAppDir: string): boolean {
 /**
  * Start the Ironclaw Next.js web app as a child process.
  *
- * Resolution order:
- * 1. Standalone build (`.next/standalone/server.js`) — shipped in the npm
- *    package; runs with plain `node`, no extra deps needed.
- * 2. Regular build (`.next/BUILD_ID`) — runs via `npx next start`.
- * 3. No build — builds from source, then starts.
+ * - Installs dependencies (`npm install`) if `node_modules/` is missing.
+ * - Builds (`next build`) on first start when no `.next/BUILD_ID` exists.
+ * - On subsequent gateway starts/restarts, reuses the existing build.
+ * - Returns a handle whose `stop()` kills the running server.
+ *
+ * Child processes (dep install, build, server) inherit the gateway's
+ * process group, so they are also terminated when the gateway exits
+ * (e.g. Ctrl-C).
  */
 export async function startWebAppIfEnabled(
   cfg: GatewayWebAppConfig | undefined,
@@ -66,7 +63,7 @@ export async function startWebAppIfEnabled(
   }
 
   const port = cfg.port ?? DEFAULT_WEB_APP_PORT;
-  const devMode = cfg.dev === true; // default false (production)
+  const devMode = cfg.dev === true;
 
   const webAppDir = resolveWebAppDir();
   if (!webAppDir) {
@@ -85,24 +82,17 @@ export async function startWebAppIfEnabled(
       stdio: "pipe",
       env: { ...process.env, PORT: String(port) },
     });
-  } else if (hasStandaloneBuild(webAppDir)) {
-    // Standalone build: run directly with node — no deps needed.
-    log.info("using pre-built standalone web app");
-    const serverJs = path.join(webAppDir, ".next", "standalone", "server.js");
-    child = spawn(process.execPath, [serverJs], {
-      cwd: path.join(webAppDir, ".next", "standalone"),
-      stdio: "pipe",
-      env: { ...process.env, PORT: String(port), HOSTNAME: "0.0.0.0" },
-    });
   } else {
-    // No standalone — fall back to regular next start.
+    // Production: install deps if needed, build if needed, then start.
     await ensureDepsInstalled(webAppDir, log);
+
     if (!hasNextBuild(webAppDir)) {
-      log.info("building web app for production…");
-      await runCommand("npx", ["next", "build"], webAppDir);
+      log.info("building web app for production (first run)…");
+      await runCommand("npx", ["next", "build"], webAppDir, log);
     } else {
-      log.info("pre-built web app found — skipping build");
+      log.info("existing web app build found — skipping build");
     }
+
     log.info(`starting web app (production) on port ${port}…`);
     child = spawn("npx", ["next", "start", "--port", String(port)], {
       cwd: webAppDir,
@@ -165,19 +155,51 @@ async function ensureDepsInstalled(
   webAppDir: string,
   log: { info: (msg: string) => void },
 ): Promise<void> {
-  const nodeModulesDir = path.join(webAppDir, "node_modules");
-  if (fs.existsSync(nodeModulesDir)) {
+  // Use `next` as a sentinel — the mere existence of `node_modules/` is not
+  // enough (a pnpm workspace may create the directory without all packages).
+  const nextPkg = path.join(webAppDir, "node_modules", "next", "package.json");
+  if (fs.existsSync(nextPkg)) {
     return;
   }
-  log.info("installing web app dependencies…");
-  await runCommand("pnpm", ["install"], webAppDir);
+
+  // In a pnpm workspace, run `pnpm install` at the workspace root so hoisted
+  // deps resolve correctly. Outside a workspace (npm global install), use npm.
+  const rootDir = path.resolve(webAppDir, "..", "..");
+  const inWorkspace = fs.existsSync(path.join(rootDir, "pnpm-workspace.yaml"));
+
+  if (inWorkspace) {
+    log.info("installing web app dependencies (workspace)…");
+    await runCommand("pnpm", ["install"], rootDir, log);
+  } else {
+    log.info("installing web app dependencies…");
+    await runCommand("npm", ["install", "--legacy-peer-deps"], webAppDir, log);
+  }
 }
 
-function runCommand(cmd: string, args: string[], cwd: string): Promise<void> {
+function runCommand(
+  cmd: string,
+  args: string[],
+  cwd: string,
+  log?: { info: (msg: string) => void },
+): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const proc = spawn(cmd, args, { cwd, stdio: "pipe", env: { ...process.env } });
+    if (log) {
+      proc.stdout?.on("data", (data: Buffer) => {
+        for (const line of data.toString().split("\n").filter(Boolean)) {
+          log.info(line);
+        }
+      });
+      proc.stderr?.on("data", (data: Buffer) => {
+        for (const line of data.toString().split("\n").filter(Boolean)) {
+          log.info(line);
+        }
+      });
+    }
     proc.on("close", (code) =>
-      code === 0 ? resolve() : reject(new Error(`${cmd} ${args[0]} exited with code ${code}`)),
+      code === 0
+        ? resolve()
+        : reject(new Error(`${cmd} ${args.join(" ")} exited with code ${code}`)),
     );
     proc.on("error", reject);
   });
