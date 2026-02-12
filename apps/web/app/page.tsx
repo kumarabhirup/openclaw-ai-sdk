@@ -36,7 +36,7 @@ export default function Home() {
         className="text-4xl font-bold tracking-tight mb-3 text-center"
         style={{ color: "var(--color-text)" }}
       >
-        OpenClaw Dench
+        Ironclaw
       </h1>
 
       {/* Tagline */}

@@ -295,7 +295,7 @@ export async function runAgent(
 		child.stderr?.on("data", (chunk: Buffer) => {
 			const text = chunk.toString();
 			stderrChunks.push(text);
-			console.error("[openclaw stderr]", text);
+			console.error("[ironclaw stderr]", text);
 		});
 	});
 }

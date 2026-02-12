@@ -1,12 +1,12 @@
 {
-  "name": "openclaw-ai-sdk",
+  "name": "ironclaw",
   "version": "2026.2.6-3",
-  "description": "Multi-channel AI gateway with extensible messaging integrations",
+  "description": "AI-powered CRM platform with multi-channel agent gateway, DuckDB workspace, and knowledge management",
   "keywords": [],
   "license": "MIT",
   "author": "",
   "bin": {
-    "openclaw-ai-sdk": "openclaw.mjs"
+    "ironclaw": "openclaw.mjs"
   },
   "files": [
     "assets/",

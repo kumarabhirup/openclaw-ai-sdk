@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "OpenClaw Chat",
-  description: "OpenClaw agent chat interface",
+  title: "Ironclaw",
+  description: "AI CRM with an agent that connects to your apps and does the work for you",
 };
 
 export default function RootLayout({

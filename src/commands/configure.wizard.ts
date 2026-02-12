@@ -177,7 +177,7 @@ async function promptEngineConfig(
 
   note(
     [
-      "OpenClaw supports two LLM engines for agent orchestration:",
+      "Ironclaw supports two LLM engines for agent orchestration:",
       "",
       "• AI SDK (default): Vercel's AI SDK v6 - modern, flexible, supports AI Gateway",
       "• pi-agent: Original implementation - battle-tested, full feature set",
@@ -189,7 +189,7 @@ async function promptEngineConfig(
 
   const engineChoice = guardCancel(
     await select<"aisdk" | "pi-agent">({
-      message: "Which LLM engine should OpenClaw use?",
+      message: "Which LLM engine should Ironclaw use?",
       options: [
         {
           value: "aisdk",
@@ -222,7 +222,7 @@ export async function runConfigureWizard(
 ) {
   try {
     printWizardHeader(runtime);
-    intro(opts.command === "update" ? "OpenClaw update wizard" : "OpenClaw configure");
+    intro(opts.command === "update" ? "Ironclaw update wizard" : "Ironclaw configure");
     const prompter = createClackPrompter();
 
     const snapshot = await readConfigFileSnapshot();
