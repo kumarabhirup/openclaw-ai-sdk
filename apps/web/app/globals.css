@@ -1121,3 +1121,88 @@ a,
   color: var(--color-error);
   font-size: 0.8rem;
 }
+
+/* ─── Chat code block (syntax-highlighted) ─── */
+
+.chat-code-block {
+  position: relative;
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  margin: 0.75em 0;
+}
+
+.chat-code-lang {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.75rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  opacity: 0.6;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ─── Shiki output styling (shared by chat + code-viewer) ─── */
+
+.syntax-block pre,
+.code-viewer-highlighted pre {
+  margin: 0;
+  padding: 0.875em 1em;
+  overflow-x: auto;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-size: 0.82em;
+  line-height: 1.6;
+  background: var(--color-surface) !important;
+}
+
+.syntax-block code,
+.code-viewer-highlighted code {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* Shiki dual-theme: show the right theme based on data-theme */
+.shiki,
+.shiki span {
+  color: var(--shiki-dark) !important;
+  background-color: transparent !important;
+}
+
+@media (prefers-color-scheme: light) {
+  .shiki,
+  .shiki span {
+    color: var(--shiki-light) !important;
+  }
+}
+
+[data-theme="light"] .shiki,
+[data-theme="light"] .shiki span {
+  color: var(--shiki-light) !important;
+}
+
+/* ─── Code viewer (workspace file viewer) ─── */
+
+.code-viewer-content pre {
+  margin: 0;
+}
+
+.code-viewer-highlighted pre {
+  padding: 0.5em 0;
+}
+
+.code-viewer-highlighted .line {
+  padding: 0 1em;
+  display: inline-block;
+  width: 100%;
+}
+
+.code-viewer-highlighted .line:hover {
+  background: var(--color-surface-hover);
+}

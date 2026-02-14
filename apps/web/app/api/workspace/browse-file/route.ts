@@ -20,6 +20,16 @@ const MIME_MAP: Record<string, string> = {
 	pdf: "application/pdf",
 };
 
+/** Extensions recognized as code files for syntax-highlighted viewing. */
+const CODE_EXTENSIONS = new Set([
+	"ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "rb", "go", "rs",
+	"java", "kt", "swift", "c", "cpp", "h", "hpp", "cs", "css", "scss",
+	"less", "html", "htm", "xml", "json", "jsonc", "toml", "sh", "bash",
+	"zsh", "fish", "ps1", "sql", "graphql", "gql", "dockerfile", "makefile",
+	"r", "lua", "php", "vue", "svelte", "diff", "patch", "ini", "env",
+	"tf", "proto", "zig", "elixir", "ex", "erl", "hs", "scala", "clj", "dart",
+]);
+
 export async function GET(req: Request) {
 	const url = new URL(req.url);
 	const filePath = url.searchParams.get("path");
@@ -82,9 +92,10 @@ export async function GET(req: Request) {
 		const content = readFileSync(resolved, "utf-8");
 		const ext = resolved.split(".").pop()?.toLowerCase();
 
-		let type: "markdown" | "yaml" | "text" = "text";
+		let type: "markdown" | "yaml" | "code" | "text" = "text";
 		if (ext === "md" || ext === "mdx") {type = "markdown";}
 		else if (ext === "yaml" || ext === "yml") {type = "yaml";}
+		else if (CODE_EXTENSIONS.has(ext ?? "")) {type = "code";}
 
 		return Response.json({ content, type });
 	} catch {

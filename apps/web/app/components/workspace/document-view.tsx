@@ -3,7 +3,9 @@
 import { useState, useCallback, type MouseEvent as ReactMouseEvent } from "react";
 import dynamic from "next/dynamic";
 import { splitReportBlocks, hasReportBlocks } from "@/lib/report-blocks";
+import { splitDiffBlocks, hasDiffBlocks } from "@/lib/diff-blocks";
 import { isWorkspaceLink } from "@/lib/workspace-links";
+import { DiffCard } from "../diff-viewer";
 import type { TreeNode, MentionSearchFn } from "./slash-command";
 
 // Load markdown renderer client-only to avoid SSR issues with ESM-only packages
@@ -99,8 +101,8 @@ export function DocumentView({
     );
   }
 
-  // Check if the markdown contains embedded report-json blocks
-  const hasReports = hasReportBlocks(markdownBody);
+  // Check if the markdown contains embedded rich blocks (reports or diffs)
+  const hasRichBlocks = hasReportBlocks(markdownBody) || hasDiffBlocks(markdownBody);
 
   // Intercept workspace-internal links in read mode (delegated click handler)
   const handleLinkClick = useCallback(
@@ -149,8 +151,8 @@ export function DocumentView({
         )}
       </div>
 
-      {hasReports ? (
-        <EmbeddedReportContent content={markdownBody} />
+      {hasRichBlocks ? (
+        <EmbeddedRichContent content={markdownBody} />
       ) : (
         <div className="workspace-prose">
           <MarkdownContent content={markdownBody} />
@@ -161,11 +163,28 @@ export function DocumentView({
 }
 
 /**
- * Renders markdown content that contains embedded report-json blocks.
- * Splits the content into alternating markdown and interactive chart sections.
+ * Renders markdown content that contains embedded rich blocks (reports and diffs).
+ * Splits the content into alternating markdown, chart, and diff sections.
  */
-function EmbeddedReportContent({ content }: { content: string }) {
-  const segments = splitReportBlocks(content);
+function EmbeddedRichContent({ content }: { content: string }) {
+  // First split on report blocks, then further split text segments on diff blocks
+  const reportSegments = splitReportBlocks(content);
+
+  type RichSegment =
+    | { type: "text"; text: string }
+    | { type: "report-artifact"; config: import("@/lib/report-blocks").ReportConfig }
+    | { type: "diff-artifact"; diff: string };
+
+  const segments: RichSegment[] = [];
+  for (const seg of reportSegments) {
+    if (seg.type === "text" && hasDiffBlocks(seg.text)) {
+      for (const ds of splitDiffBlocks(seg.text)) {
+        segments.push(ds);
+      }
+    } else {
+      segments.push(seg as RichSegment);
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -174,6 +193,13 @@ function EmbeddedReportContent({ content }: { content: string }) {
           return (
             <div key={index} className="my-6">
               <ReportCard config={segment.config} />
+            </div>
+          );
+        }
+        if (segment.type === "diff-artifact") {
+          return (
+            <div key={index} className="my-4">
+              <DiffCard diff={segment.diff} />
             </div>
           );
         }

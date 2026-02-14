@@ -7,7 +7,10 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ChainOfThought, type ChainPart } from "./chain-of-thought";
 import { splitReportBlocks, hasReportBlocks } from "@/lib/report-blocks";
+import { splitDiffBlocks, hasDiffBlocks } from "@/lib/diff-blocks";
 import type { ReportConfig } from "./charts/types";
+import { DiffCard } from "./diff-viewer";
+import { SyntaxBlock } from "./syntax-block";
 
 // Lazy-load ReportCard (uses Recharts which is heavy)
 const ReportCard = dynamic(
@@ -31,7 +34,8 @@ const ReportCard = dynamic(
 type MessageSegment =
 	| { type: "text"; text: string }
 	| { type: "chain"; parts: ChainPart[] }
-	| { type: "report-artifact"; config: ReportConfig };
+	| { type: "report-artifact"; config: ReportConfig }
+	| { type: "diff-artifact"; diff: string };
 
 /** Map AI SDK tool state string to a simplified status */
 function toolStatus(state: string): "running" | "done" | "error" {
@@ -67,6 +71,14 @@ function groupParts(parts: UIMessage["parts"]): MessageSegment[] {
 				segments.push(
 					...(splitReportBlocks(text) as MessageSegment[]),
 				);
+			} else if (hasDiffBlocks(text)) {
+				for (const seg of splitDiffBlocks(text)) {
+					if (seg.type === "diff-artifact") {
+						segments.push({ type: "diff-artifact", diff: seg.diff });
+					} else {
+						segments.push({ type: "text", text: seg.text });
+					}
+				}
 			} else {
 				segments.push({ type: "text", text });
 			}
@@ -116,6 +128,8 @@ function groupParts(parts: UIMessage["parts"]): MessageSegment[] {
 				output: asRecord(tp.output),
 			});
 		} else if (part.type.startsWith("tool-")) {
+			// Handles both live SSE parts (input/output fields) and
+			// persisted JSONL parts (args/result fields from tool-invocation)
 			const tp = part as {
 				type: string;
 				toolCallId: string;
@@ -124,7 +138,16 @@ function groupParts(parts: UIMessage["parts"]): MessageSegment[] {
 				title?: string;
 				input?: unknown;
 				output?: unknown;
+				// Persisted JSONL format uses args/result instead
+				args?: unknown;
+				result?: unknown;
+				errorText?: string;
 			};
+			// Persisted tool-invocation parts have no state field but
+			// include result/errorText to indicate completion.
+			const resolvedState =
+				tp.state ??
+				(tp.errorText ? "error" : "result" in tp ? "output-available" : "input-available");
 			chain.push({
 				kind: "tool",
 				toolName:
@@ -132,9 +155,9 @@ function groupParts(parts: UIMessage["parts"]): MessageSegment[] {
 					tp.toolName ??
 					part.type.replace("tool-", ""),
 				toolCallId: tp.toolCallId,
-				status: toolStatus(tp.state ?? "input-available"),
-				args: asRecord(tp.input),
-				output: asRecord(tp.output),
+				status: toolStatus(resolvedState),
+				args: asRecord(tp.input) ?? asRecord(tp.args),
+				output: asRecord(tp.output) ?? asRecord(tp.result),
 			});
 		}
 	}
@@ -416,6 +439,67 @@ const mdComponents: Components = {
 		// eslint-disable-next-line @next/next/no-img-element
 		<img src={src} alt={alt ?? ""} loading="lazy" {...props} />
 	),
+	// Syntax-highlighted fenced code blocks
+	pre: ({ children, ...props }) => {
+		// react-markdown wraps code blocks in <pre><code>...
+		// Extract the code element to get lang + content
+		const child = Array.isArray(children) ? children[0] : children;
+		if (
+			child &&
+			typeof child === "object" &&
+			"type" in child &&
+			(child as { type?: string }).type === "code"
+		) {
+			const codeEl = child as {
+				props?: {
+					className?: string;
+					children?: string;
+				};
+			};
+			const className = codeEl.props?.className ?? "";
+			const langMatch = className.match(/language-(\w+)/);
+			const lang = langMatch?.[1] ?? "";
+			const code =
+				typeof codeEl.props?.children === "string"
+					? codeEl.props.children.replace(/\n$/, "")
+					: "";
+
+			// Diff language: render as DiffCard
+			if (lang === "diff") {
+				return <DiffCard diff={code} />;
+			}
+
+			// Known language: syntax-highlight with shiki
+			if (lang) {
+				return (
+					<div className="chat-code-block">
+						<div
+							className="chat-code-lang"
+						>
+							{lang}
+						</div>
+						<SyntaxBlock code={code} lang={lang} />
+					</div>
+				);
+			}
+		}
+		// Fallback: default pre rendering
+		return <pre {...props}>{children}</pre>;
+	},
+	// Inline code (no highlighting needed)
+	code: ({ children, className, ...props }) => {
+		// If this code has a language class, it's inside a <pre> and
+		// will be handled by the pre override above. Just return raw.
+		if (className?.startsWith("language-")) {
+			return (
+				<code className={className} {...props}>
+					{children}
+				</code>
+			);
+		}
+		// Inline code
+		return <code {...props}>{children}</code>;
+	},
 };
 
 /* ─── Chat message ─── */
@@ -545,14 +629,22 @@ export function ChatMessage({ message }: { message: UIMessage }) {
 			</div>
 				);
 				}
-				if (segment.type === "report-artifact") {
-					return (
-						<ReportCard
-							key={index}
-							config={segment.config}
-						/>
-					);
-				}
+			if (segment.type === "report-artifact") {
+				return (
+					<ReportCard
+						key={index}
+						config={segment.config}
+					/>
+				);
+			}
+			if (segment.type === "diff-artifact") {
+				return (
+					<DiffCard
+						key={index}
+						diff={segment.diff}
+					/>
+				);
+			}
 				return (
 					<ChainOfThought
 						key={index}

@@ -94,6 +94,15 @@ function isSafePath(absPath: string): boolean {
   return allowed.some((dir) => normalized.startsWith(dir));
 }
 
+/** Extensions recognized as code files for syntax-highlighted viewing. */
+const VIRTUAL_CODE_EXTENSIONS = new Set([
+  "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "rb", "go", "rs",
+  "java", "kt", "swift", "c", "cpp", "h", "hpp", "cs", "css", "scss",
+  "less", "html", "htm", "xml", "json", "jsonc", "toml", "sh", "bash",
+  "zsh", "fish", "ps1", "sql", "graphql", "gql", "diff", "patch",
+  "ini", "env", "tf", "proto", "zig", "lua", "php",
+]);
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const path = url.searchParams.get("path");
@@ -114,9 +123,10 @@ export async function GET(req: Request) {
   try {
     const content = readFileSync(absPath, "utf-8");
     const ext = absPath.split(".").pop()?.toLowerCase();
-    let type: "markdown" | "yaml" | "text" = "text";
+    let type: "markdown" | "yaml" | "code" | "text" = "text";
     if (ext === "md" || ext === "mdx") {type = "markdown";}
     else if (ext === "yaml" || ext === "yml") {type = "yaml";}
+    else if (VIRTUAL_CODE_EXTENSIONS.has(ext ?? "")) {type = "code";}
     return Response.json({ content, type });
   } catch (err) {
     return Response.json(

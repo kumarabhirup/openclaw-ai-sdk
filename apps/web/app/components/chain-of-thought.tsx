@@ -1,6 +1,30 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DiffCard } from "./diff-viewer";
+
+/* ─── Diff synthesis from edit tool args ─── */
+
+/**
+ * Build a unified diff string from old_string/new_string pairs.
+ * This provides a visual diff even when the tool result doesn't include one.
+ */
+function buildSyntheticDiff(filePath: string, oldStr: string, newStr: string): string {
+	const oldLines = oldStr.split("\n");
+	const newLines = newStr.split("\n");
+	const lines: string[] = [
+		`--- a/${filePath}`,
+		`+++ b/${filePath}`,
+		`@@ -1,${oldLines.length} +1,${newLines.length} @@`,
+	];
+	for (const line of oldLines) {
+		lines.push(`-${line}`);
+	}
+	for (const line of newLines) {
+		lines.push(`+${line}`);
+	}
+	return lines.join("\n");
+}
 
 /* ─── Public types ─── */
 
@@ -1059,6 +1083,8 @@ function ToolStep({
 	errorText?: string;
 }) {
 	const [showOutput, setShowOutput] = useState(false);
+	// Auto-expand diffs for write tool steps
+	const [showDiff, setShowDiff] = useState(true);
 	const kind = classifyTool(toolName, args);
 	const label = buildStepLabel(kind, toolName, args, output);
 	const domains =
@@ -1069,6 +1095,27 @@ function ToolStep({
 				: [];
 	const outputText =
 		typeof output?.text === "string" ? output.text : undefined;
+
+	// Detect diff data from edit/write tool results.
+	// Priority: output.diff (from edit tool), then synthesize from args.
+	const diffText = (() => {
+		if (kind !== "write" || status !== "done") {return undefined;}
+		// 1. Direct diff from tool result (edit tool returns this)
+		if (typeof output?.diff === "string") {return output.diff;}
+		// 2. Synthesize from edit args (old_string/new_string or oldText/newText)
+		const oldStr =
+			typeof args?.old_string === "string" ? args.old_string :
+			typeof args?.oldText === "string" ? args.oldText : null;
+		const newStr =
+			typeof args?.new_string === "string" ? args.new_string :
+			typeof args?.newText === "string" ? args.newText : null;
+		if (oldStr !== null && newStr !== null) {
+			const path = typeof args?.path === "string" ? args.path :
+				typeof args?.file_path === "string" ? args.file_path : "file";
+			return buildSyntheticDiff(path, oldStr, newStr);
+		}
+		return undefined;
+	})();
 
 	// For single-file reads that are media, render inline preview
 	const filePath = getFilePath(args, output);
@@ -1108,6 +1155,23 @@ function ToolStep({
 				>
 					{label}
 				</div>
+
+				{/* Inline diff for edit/write tool steps */}
+				{diffText && status === "done" && (
+					<div className="mt-1.5">
+						<button
+							type="button"
+							onClick={() => setShowDiff((v) => !v)}
+							className="text-[11px] hover:underline cursor-pointer mb-1"
+							style={{ color: "var(--color-accent)" }}
+						>
+							{showDiff ? "Hide changes" : "Show changes"}
+						</button>
+						{showDiff && (
+							<DiffCard diff={diffText} />
+						)}
+					</div>
+				)}
 
 				{/* Single media inline preview (when not grouped) */}
 				{isSingleMedia && filePath && media === "image" && (
@@ -1247,11 +1311,12 @@ function ToolStep({
 					</div>
 				)}
 
-				{/* Output toggle — skip for media files and search */}
+				{/* Output toggle — skip for media files, search, and diffs */}
 				{outputText &&
 					status === "done" &&
 					kind !== "search" &&
-					!isSingleMedia && (
+					!isSingleMedia &&
+					!diffText && (
 						<div className="mt-1">
 							<button
 								type="button"

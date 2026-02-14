@@ -8,18 +8,45 @@ export function isReportFile(filename: string): boolean {
   return filename.endsWith(".report.json");
 }
 
+/** Extensions recognized as code files for syntax-highlighted viewing. */
+const CODE_EXTENSIONS = new Set([
+  "ts", "tsx", "js", "jsx", "mjs", "cjs",
+  "py", "rb", "go", "rs", "java", "kt", "swift",
+  "c", "cpp", "h", "hpp", "cs",
+  "css", "scss", "less",
+  "html", "htm", "xml", "svg",
+  "json", "jsonc",
+  "yaml", "yml", "toml",
+  "sh", "bash", "zsh", "fish", "ps1",
+  "sql", "graphql", "gql",
+  "dockerfile", "makefile", "cmake",
+  "r", "lua", "php",
+  "vue", "svelte",
+  "diff", "patch",
+  "ini", "env",
+  "tf", "proto", "zig",
+  "elixir", "ex", "erl", "hs", "scala", "clj", "dart",
+]);
+
+/** Check if a filename has a recognized code extension. */
+export function isCodeFile(name: string): boolean {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  return CODE_EXTENSIONS.has(ext);
+}
+
 /**
  * Classify a file's type for the tree display.
- * Returns "report", "database", "document", or "file".
+ * Returns "report", "database", "document", "code", or "file".
  */
 export function classifyFileType(
   name: string,
   isDatabaseFile: (n: string) => boolean,
-): "report" | "database" | "document" | "file" {
+): "report" | "database" | "document" | "code" | "file" {
   if (isReportFile(name)) {return "report";}
   if (isDatabaseFile(name)) {return "database";}
   const ext = name.split(".").pop()?.toLowerCase();
   if (ext === "md" || ext === "mdx") {return "document";}
+  if (isCodeFile(name)) {return "code";}
   return "file";
 }
 

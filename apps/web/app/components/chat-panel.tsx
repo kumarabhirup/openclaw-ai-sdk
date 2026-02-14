@@ -12,26 +12,36 @@ import {
 	useState,
 } from "react";
 import { ChatMessage } from "./chat-message";
+import {
+	FilePickerModal,
+	type SelectedFile,
+} from "./file-picker-modal";
+import { ChatEditor, type ChatEditorHandle } from "./tiptap/chat-editor";
 
 // ── Attachment types & helpers ──
 
 type AttachedFile = {
 	id: string;
-	file: File;
-	/** Full filesystem path when available (Electron/Chromium), otherwise filename. */
+	name: string;
 	path: string;
-	previewUrl: string | null;
 };
 
 function getFileCategory(
-	file: File,
+	name: string,
 ): "image" | "video" | "audio" | "pdf" | "code" | "document" | "other" {
-	const mime = file.type;
-	if (mime.startsWith("image/")) {return "image";}
-	if (mime.startsWith("video/")) {return "video";}
-	if (mime.startsWith("audio/")) {return "audio";}
-	if (mime === "application/pdf") {return "pdf";}
-	const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+	const ext = name.split(".").pop()?.toLowerCase() ?? "";
+	if (
+		[
+			"jpg", "jpeg", "png", "gif", "webp", "svg", "bmp",
+			"ico", "tiff", "heic",
+		].includes(ext)
+	)
+		{return "image";}
+	if (["mp4", "webm", "mov", "avi", "mkv", "flv"].includes(ext))
+		{return "video";}
+	if (["mp3", "wav", "ogg", "aac", "flac", "m4a"].includes(ext))
+		{return "audio";}
+	if (ext === "pdf") {return "pdf";}
 	if (
 		[
 			"js", "ts", "tsx", "jsx", "py", "rb", "go", "rs", "java",
@@ -50,10 +60,11 @@ function getFileCategory(
 	return "other";
 }
 
-function formatFileSize(bytes: number): string {
-	if (bytes < 1024) {return bytes + " B";}
-	if (bytes < 1024 * 1024) {return (bytes / 1024).toFixed(1) + " KB";}
-	return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+function shortenPath(path: string): string {
+	return path
+		.replace(/^\/Users\/[^/]+/, "~")
+		.replace(/^\/home\/[^/]+/, "~")
+		.replace(/^[A-Z]:\\Users\\[^\\]+/, "~");
 }
 
 const categoryMeta: Record<string, { bg: string; fg: string }> = {
@@ -176,14 +187,13 @@ function AttachmentStrip({
 				style={{ scrollbarWidth: "thin" }}
 			>
 				{files.map((af) => {
-					const category = getFileCategory(af.file);
+					const category = getFileCategory(
+						af.name,
+					);
 					const meta =
 						categoryMeta[category] ??
 						categoryMeta.other;
-					const isMedia =
-						(category === "image" ||
-							category === "video") &&
-						af.previewUrl;
+					const short = shortenPath(af.path);
 
 					return (
 						<div
@@ -198,7 +208,9 @@ function AttachmentStrip({
 							{/* Remove button */}
 							<button
 								type="button"
-								onClick={() => onRemove(af.id)}
+								onClick={() =>
+									onRemove(af.id)
+								}
 								className="absolute top-1 right-1 z-10 w-[18px] h-[18px] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
 								style={{
 									background:
@@ -222,113 +234,46 @@ function AttachmentStrip({
 								</svg>
 							</button>
 
-							{isMedia ? (
-								<div>
-									{category === "image" ? (
-										/* eslint-disable-next-line @next/next/no-img-element */
-										<img
-											src={
-												af.previewUrl!
-											}
-											alt={
-												af.file
-													.name
-											}
-											className="w-[100px] h-[64px] object-cover"
-										/>
-									) : (
-										<div className="relative w-[100px] h-[64px]">
-											<video
-												src={
-													af.previewUrl!
-												}
-												className="w-full h-full object-cover"
-												muted
-												preload="metadata"
-											/>
-											<div className="absolute inset-0 flex items-center justify-center bg-black/20">
-												<div className="w-6 h-6 rounded-full bg-black/50 flex items-center justify-center backdrop-blur-sm">
-													<svg
-														width="10"
-														height="10"
-														viewBox="0 0 24 24"
-														fill="white"
-													>
-														<polygon points="5 3 19 12 5 21 5 3" />
-													</svg>
-												</div>
-											</div>
-										</div>
-									)}
-									<div className="px-2 py-1.5">
-										<p
-											className="text-[10px] font-medium truncate w-[84px]"
-											style={{
-												color: "var(--color-text)",
-											}}
-											title={
-												af.file
-													.name
-											}
-										>
-											{af.file.name}
-										</p>
-										<p
-											className="text-[9px]"
-											style={{
-												color: "var(--color-text-muted)",
-											}}
-										>
-											{formatFileSize(
-												af.file
-													.size,
-											)}
-										</p>
-									</div>
+							<div className="flex items-center gap-2.5 px-3 py-2.5">
+								<div
+									className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+									style={{
+										background:
+											meta.bg,
+										color: meta.fg,
+									}}
+								>
+									<FileTypeIcon
+										category={
+											category
+										}
+									/>
 								</div>
-							) : (
-								<div className="flex items-center gap-2.5 px-3 py-2.5">
-									<div
-										className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+								<div className="min-w-0 max-w-[140px]">
+									<p
+										className="text-[11px] font-medium truncate"
 										style={{
-											background:
-												meta.bg,
-											color: meta.fg,
+											color: "var(--color-text)",
 										}}
+										title={
+											af.path
+										}
 									>
-										<FileTypeIcon
-											category={
-												category
-											}
-										/>
-									</div>
-									<div className="min-w-0 max-w-[120px]">
-										<p
-											className="text-[11px] font-medium truncate"
-											style={{
-												color: "var(--color-text)",
-											}}
-											title={
-												af.file
-													.name
-											}
-										>
-											{af.file.name}
-										</p>
-										<p
-											className="text-[9px]"
-											style={{
-												color: "var(--color-text-muted)",
-											}}
-										>
-											{formatFileSize(
-												af.file
-													.size,
-											)}
-										</p>
-									</div>
+										{af.name}
+									</p>
+									<p
+										className="text-[9px] truncate"
+										style={{
+											color: "var(--color-text-muted)",
+										}}
+										title={
+											af.path
+										}
+									>
+										{short}
+									</p>
 								</div>
-							)}
+							</div>
 						</div>
 					);
 				})}
@@ -474,6 +419,8 @@ function createStreamParser() {
 export type ChatPanelHandle = {
 	loadSession: (sessionId: string) => Promise<void>;
 	newSession: () => Promise<void>;
+	/** Insert a file mention into the chat editor (e.g. from sidebar drag). */
+	insertFileMention?: (name: string, path: string) => void;
 };
 
 export type FileContext = {
@@ -513,7 +460,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 		},
 		ref,
 	) {
-		const [input, setInput] = useState("");
+		const editorRef = useRef<ChatEditorHandle>(null);
+		const [editorEmpty, setEditorEmpty] = useState(true);
 		const [currentSessionId, setCurrentSessionId] = useState<
 			string | null
 		>(null);
@@ -525,7 +473,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 		const [attachedFiles, setAttachedFiles] = useState<
 			AttachedFile[]
 		>([]);
-		const fileInputRef = useRef<HTMLInputElement>(null);
+		const [showFilePicker, setShowFilePicker] =
+			useState(false);
 
 		// ── Reconnection state ──
 		const [isReconnecting, setIsReconnecting] = useState(false);
@@ -880,74 +829,93 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 
 		// ── Actions ──
 
-		const handleSubmit = async (e: React.FormEvent) => {
-			e.preventDefault();
-			const hasText = input.trim().length > 0;
-			const hasFiles = attachedFiles.length > 0;
-			if ((!hasText && !hasFiles) || isStreaming) {
-				return;
-			}
+		// Ref for handleNewSession so handleEditorSubmit doesn't depend on the hook order
+		const handleNewSessionRef = useRef<() => void>(() => {});
 
-			const userText = input.trim();
-			const currentAttachments = [...attachedFiles];
-			setInput("");
-
-			// Clear attachments and revoke preview URLs
-			if (currentAttachments.length > 0) {
-				for (const f of currentAttachments) {
-					if (f.previewUrl)
-						{URL.revokeObjectURL(f.previewUrl);}
+		/** Submit from the Tiptap editor (called on Enter or send button). */
+		const handleEditorSubmit = useCallback(
+			async (
+				text: string,
+				mentionedFiles: Array<{ name: string; path: string }>,
+			) => {
+				const hasText = text.trim().length > 0;
+				const hasMentions = mentionedFiles.length > 0;
+				const hasFiles = attachedFiles.length > 0;
+				if ((!hasText && !hasMentions && !hasFiles) || isStreaming) {
+					return;
 				}
-				setAttachedFiles([]);
-			}
 
-			if (userText.toLowerCase() === "/new") {
-				handleNewSession();
-				return;
-			}
+				const userText = text.trim();
+				const currentAttachments = [...attachedFiles];
 
-			let sessionId = currentSessionId;
-			if (!sessionId) {
-				const titleSource =
-					userText || "File attachment";
-				const title =
-					titleSource.length > 60
-						? titleSource.slice(0, 60) + "..."
-						: titleSource;
-				sessionId = await createSession(title);
-				setCurrentSessionId(sessionId);
-				sessionIdRef.current = sessionId;
-				onActiveSessionChange?.(sessionId);
-				onSessionsChange?.();
-
-				if (filePath) {
-					fetchFileSessionsRef.current?.().then(
-						(sessions) => {
-							setFileSessions(sessions);
-						},
-					);
+				// Clear attachments
+				if (currentAttachments.length > 0) {
+					setAttachedFiles([]);
 				}
-			}
 
-			// Build message with optional attachment prefix
-			let messageText = userText;
-			if (currentAttachments.length > 0) {
-				const filePaths = currentAttachments
-					.map((f) => f.path)
-					.join(", ");
-				const prefix = `[Attached files: ${filePaths}]`;
-				messageText = messageText
-					? `${prefix}\n\n${messageText}`
-					: prefix;
-			}
+				if (userText.toLowerCase() === "/new") {
+					handleNewSessionRef.current();
+					return;
+				}
 
-			if (fileContext && isFirstFileMessageRef.current) {
-				messageText = `[Context: workspace file '${fileContext.path}']\n\n${messageText}`;
-				isFirstFileMessageRef.current = false;
-			}
+				let sessionId = currentSessionId;
+				if (!sessionId) {
+					const titleSource =
+						userText || "File attachment";
+					const title =
+						titleSource.length > 60
+							? titleSource.slice(0, 60) + "..."
+							: titleSource;
+					sessionId = await createSession(title);
+					setCurrentSessionId(sessionId);
+					sessionIdRef.current = sessionId;
+					onActiveSessionChange?.(sessionId);
+					onSessionsChange?.();
 
-			sendMessage({ text: messageText });
-		};
+					if (filePath) {
+						fetchFileSessionsRef.current?.().then(
+							(sessions) => {
+								setFileSessions(sessions);
+							},
+						);
+					}
+				}
+
+				// Build message with optional attachment prefix
+				let messageText = userText;
+
+				// Merge mention paths and attachment paths
+				const allFilePaths = [
+					...mentionedFiles.map((f) => f.path),
+					...currentAttachments.map((f) => f.path),
+				];
+				if (allFilePaths.length > 0) {
+					const prefix = `[Attached files: ${allFilePaths.join(", ")}]`;
+					messageText = messageText
+						? `${prefix}\n\n${messageText}`
+						: prefix;
+				}
+
+				if (fileContext && isFirstFileMessageRef.current) {
+					messageText = `[Context: workspace file '${fileContext.path}']\n\n${messageText}`;
+					isFirstFileMessageRef.current = false;
+				}
+
+				sendMessage({ text: messageText });
+			},
+			[
+				attachedFiles,
+				isStreaming,
+				currentSessionId,
+				createSession,
+				onActiveSessionChange,
+				onSessionsChange,
+				filePath,
+				fileContext,
+				sendMessage,
+			],
+		);
+
 
 		const handleSessionSelect = useCallback(
 			async (sessionId: string) => {
@@ -1058,11 +1026,17 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 			}
 		}, [setMessages, onActiveSessionChange, filePath, stop]);
 
+		// Keep the ref in sync so handleEditorSubmit can call it
+		handleNewSessionRef.current = handleNewSession;
+
 		useImperativeHandle(
 			ref,
 			() => ({
 				loadSession: handleSessionSelect,
 				newSession: handleNewSession,
+				insertFileMention: (name: string, path: string) => {
+					editorRef.current?.insertFileMention(name, path);
+				},
 			}),
 			[handleSessionSelect, handleNewSession],
 		);
@@ -1092,69 +1066,31 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 
 		// ── Attachment handlers ──
 
-		const handleFileSelect = useCallback(
-			(e: React.ChangeEvent<HTMLInputElement>) => {
-				const files = e.target.files;
-				if (!files || files.length === 0) {return;}
-
-				const newFiles: AttachedFile[] = Array.from(
-					files,
-				).map((file) => {
-					const cat = getFileCategory(file);
-					const previewUrl =
-						cat === "image" || cat === "video"
-							? URL.createObjectURL(file)
-							: null;
-					// Chromium/Electron exposes the full filesystem path
-					const fullPath =
-						(file as File & { path?: string })
-							.path ||
-						file.webkitRelativePath ||
-						file.name;
-					return {
-						id: `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-						file,
-						path: fullPath,
-						previewUrl,
-					};
-				});
-
-				setAttachedFiles((prev) => [...prev, ...newFiles]);
-				e.target.value = "";
+		const handleFilesSelected = useCallback(
+			(files: SelectedFile[]) => {
+				const newFiles: AttachedFile[] = files.map(
+					(f) => ({
+						id: `${f.path}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+						name: f.name,
+						path: f.path,
+					}),
+				);
+				setAttachedFiles((prev) => [
+					...prev,
+					...newFiles,
+				]);
 			},
 			[],
 		);
 
 		const removeAttachment = useCallback((id: string) => {
-			setAttachedFiles((prev) => {
-				const found = prev.find((f) => f.id === id);
-				if (found?.previewUrl) {
-					URL.revokeObjectURL(found.previewUrl);
-				}
-				return prev.filter((f) => f.id !== id);
-			});
+			setAttachedFiles((prev) =>
+				prev.filter((f) => f.id !== id),
+			);
 		}, []);
 
 		const clearAllAttachments = useCallback(() => {
-			setAttachedFiles((prev) => {
-				for (const f of prev) {
-					if (f.previewUrl)
-						{URL.revokeObjectURL(f.previewUrl);}
-				}
-				return [];
-			});
-		}, []);
-
-		// Cleanup preview URLs on unmount
-		const attachedFilesRef = useRef(attachedFiles);
-		attachedFilesRef.current = attachedFiles;
-		useEffect(() => {
-			return () => {
-				for (const f of attachedFilesRef.current) {
-					if (f.previewUrl)
-						{URL.revokeObjectURL(f.previewUrl);}
-				}
-			};
+			setAttachedFiles([]);
 		}, []);
 
 		// ── Status label ──
@@ -1445,32 +1381,27 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 								border: "1px solid var(--color-border)",
 							}}
 						>
-							<form onSubmit={handleSubmit}>
-								<input
-									type="text"
-									value={input}
-									onChange={(e) =>
-										setInput(e.target.value)
-									}
+							<ChatEditor
+								ref={editorRef}
+								onSubmit={handleEditorSubmit}
+								onChange={(isEmpty) =>
+									setEditorEmpty(isEmpty)
+								}
 								placeholder={
 									compact && fileContext
 										? `Ask about ${fileContext.filename}...`
 										: attachedFiles.length >
 												0
 											? "Add a message or send files..."
-											: "Ask anything..."
+											: "Type @ to mention files..."
 								}
-									disabled={
-										isStreaming ||
-										loadingSession ||
-										startingNewSession
-									}
-									className={`w-full ${compact ? "px-3 py-2.5 text-xs" : "px-4 py-3.5 text-sm"} bg-transparent outline-none placeholder:text-[var(--color-text-muted)] disabled:opacity-50`}
-									style={{
-										color: "var(--color-text)",
-									}}
-								/>
-						</form>
+								disabled={
+									isStreaming ||
+									loadingSession ||
+									startingNewSession
+								}
+								compact={compact}
+							/>
 
 						{/* Attachment preview strip */}
 						<AttachmentStrip
@@ -1487,20 +1418,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 								className={`flex items-center justify-between ${compact ? "px-2 pb-1.5" : "px-3 pb-2.5"}`}
 							>
 							<div className="flex items-center gap-0.5">
-								{/* File input (hidden) */}
-								<input
-									ref={fileInputRef}
-									type="file"
-									multiple
-									className="hidden"
-									onChange={
-										handleFileSelect
-									}
-								/>
 								<button
 									type="button"
 									onClick={() =>
-										fileInputRef.current?.click()
+										setShowFilePicker(
+											true,
+										)
 									}
 									className="p-1.5 rounded-lg hover:opacity-80 transition-opacity"
 									style={{
@@ -1528,10 +1451,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 								</div>
 							{/* Send button */}
 							<button
-								type="submit"
-								onClick={handleSubmit}
+								type="button"
+								onClick={() => {
+									editorRef.current?.submit();
+								}}
 								disabled={
-									(!input.trim() &&
+									(editorEmpty &&
 										attachedFiles.length ===
 											0) ||
 									isStreaming ||
@@ -1541,7 +1466,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 								className={`${compact ? "w-6 h-6" : "w-7 h-7"} rounded-full flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed`}
 								style={{
 									background:
-										input.trim() ||
+										!editorEmpty ||
 										attachedFiles.length >
 											0
 											? "var(--color-accent)"
@@ -1573,6 +1498,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 						</div>
 					</div>
 				</div>
+
+				{/* File picker modal */}
+				<FilePickerModal
+					open={showFilePicker}
+					onClose={() =>
+						setShowFilePicker(false)
+					}
+					onSelect={handleFilesSelected}
+				/>
 			</div>
 		);
 	},

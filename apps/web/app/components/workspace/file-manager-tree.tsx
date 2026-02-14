@@ -448,6 +448,17 @@ function DraggableNode({
         {...listeners}
         role="treeitem"
         tabIndex={-1}
+        draggable={!isProtected}
+        onDragStart={(e) => {
+          // Native HTML5 drag for cross-component drops (e.g. into chat editor).
+          // Coexists with @dnd-kit which uses pointer events for intra-tree reordering.
+          e.dataTransfer.setData(
+            "application/x-file-mention",
+            JSON.stringify({ name: node.name, path: node.path }),
+          );
+          e.dataTransfer.setData("text/plain", node.path);
+          e.dataTransfer.effectAllowed = "copy";
+        }}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}

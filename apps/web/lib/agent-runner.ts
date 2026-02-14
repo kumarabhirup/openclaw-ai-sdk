@@ -216,6 +216,9 @@ export function buildToolOutput(
 			"query",
 			"results",
 			"citations",
+			// Edit tool fields — pass through so the UI can render inline diffs
+			"diff",
+			"firstChangedLine",
 		]) {
 			if (result.details[key] !== undefined)
 				{out[key] = result.details[key];}

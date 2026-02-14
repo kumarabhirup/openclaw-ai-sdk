@@ -9,6 +9,7 @@ import { ObjectTable } from "../components/workspace/object-table";
 import { ObjectKanban } from "../components/workspace/object-kanban";
 import { DocumentView } from "../components/workspace/document-view";
 import { FileViewer } from "../components/workspace/file-viewer";
+import { CodeViewer } from "../components/workspace/code-viewer";
 import { MediaViewer, detectMediaType, type MediaType } from "../components/workspace/media-viewer";
 import { DatabaseViewer } from "../components/workspace/database-viewer";
 import { Breadcrumbs } from "../components/workspace/breadcrumbs";
@@ -18,6 +19,7 @@ import { ChatPanel, type ChatPanelHandle } from "../components/chat-panel";
 import { EntryDetailModal } from "../components/workspace/entry-detail-modal";
 import { useSearchIndex } from "@/lib/search-index";
 import { parseWorkspaceLink, isWorkspaceLink } from "@/lib/workspace-links";
+import { isCodeFile } from "@/lib/report-utils";
 import { CronDashboard } from "../components/cron/cron-dashboard";
 import { CronJobDetail } from "../components/cron/cron-job-detail";
 import type { CronJob, CronJobsResponse } from "../types/cron";
@@ -73,7 +75,7 @@ type ObjectData = {
 
 type FileData = {
   content: string;
-  type: "markdown" | "yaml" | "text";
+  type: "markdown" | "yaml" | "code" | "text";
 };
 
 type ContentState =
@@ -82,6 +84,7 @@ type ContentState =
   | { kind: "object"; data: ObjectData }
   | { kind: "document"; data: FileData; title: string }
   | { kind: "file"; data: FileData; filename: string }
+  | { kind: "code"; data: FileData; filename: string }
   | { kind: "media"; url: string; mediaType: MediaType; filename: string; filePath: string }
   | { kind: "database"; dbPath: string; filename: string }
   | { kind: "report"; reportPath: string; filename: string }
@@ -257,7 +260,7 @@ function WorkspacePageInner() {
       if (prev.kind === "document") {
         return { ...prev, data: { ...prev.data, content: newContent } };
       }
-      if (prev.kind === "file") {
+      if (prev.kind === "file" || prev.kind === "code") {
         return { ...prev, data: { ...prev.data, content: newContent } };
       }
       return prev;
@@ -364,7 +367,12 @@ function WorkspacePageInner() {
             return;
           }
           const data: FileData = await res.json();
-          setContent({ kind: "file", data, filename: node.name });
+          // Route code files to the syntax-highlighted CodeViewer
+          if (isCodeFile(node.name)) {
+            setContent({ kind: "code", data, filename: node.name });
+          } else {
+            setContent({ kind: "file", data, filename: node.name });
+          }
         } else if (node.type === "folder") {
           setContent({ kind: "directory", node });
         }
@@ -403,6 +411,12 @@ function WorkspacePageInner() {
             void chatRef.current?.newSession();
             return;
           }
+        }
+        // Clicking a folder in browse mode → navigate into it so the tree
+        // is fetched fresh (avoids stale/empty children from depth limits).
+        if (node.type === "folder") {
+          setBrowseDir(node.path);
+          return;
         }
       }
 
@@ -522,6 +536,28 @@ function WorkspacePageInner() {
   const handleGoHome = useCallback(() => {
     setBrowseDir(null);
   }, [setBrowseDir]);
+
+  // Handle file search selection: navigate sidebar to the file's location and open it
+  const handleFileSearchSelect = useCallback(
+    (item: { name: string; path: string; type: string }) => {
+      if (item.type === "folder") {
+        // Navigate the sidebar into the folder
+        setBrowseDir(item.path);
+      } else {
+        // Navigate the sidebar to the parent directory of the file
+        const parentOfFile = item.path.split("/").slice(0, -1).join("/") || "/";
+        setBrowseDir(parentOfFile);
+        // Open the file in the main panel
+        const node: TreeNode = {
+          name: item.name,
+          path: item.path,
+          type: item.type as TreeNode["type"],
+        };
+        void loadContent(node);
+      }
+    },
+    [setBrowseDir, loadContent],
+  );
 
   // Sync URL bar with active content / chat state.
   // Uses window.location instead of searchParams in the comparison to
@@ -733,6 +769,7 @@ function WorkspacePageInner() {
         parentDir={effectiveParentDir}
         onNavigateUp={handleNavigateUp}
         onGoHome={handleGoHome}
+        onFileSearchSelect={handleFileSearchSelect}
       />
 
       {/* Main content */}
@@ -938,6 +975,14 @@ function ContentRenderer({
           content={content.data.content}
           filename={content.filename}
           type={content.data.type === "yaml" ? "yaml" : "text"}
+        />
+      );
+
+    case "code":
+      return (
+        <CodeViewer
+          content={content.data.content}
+          filename={content.filename}
         />
       );
 

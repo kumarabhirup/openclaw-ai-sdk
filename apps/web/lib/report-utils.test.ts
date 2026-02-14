@@ -62,8 +62,12 @@ describe("classifyFileType", () => {
     expect(classifyFileType("page.mdx", mockIsDb)).toBe("document");
   });
 
-  it("classifies .yaml as file", () => {
-    expect(classifyFileType("config.yaml", mockIsDb)).toBe("file");
+  it("classifies .yaml as code", () => {
+    expect(classifyFileType("config.yaml", mockIsDb)).toBe("code");
+  });
+
+  it("classifies .ts as code", () => {
+    expect(classifyFileType("index.ts", mockIsDb)).toBe("code");
   });
 
   it("classifies .txt as file", () => {
