@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { DiffCard } from "./diff-viewer";
 
 /* ─── Diff synthesis from edit tool args ─── */
@@ -39,11 +40,7 @@ export type ChainPart =
 			output?: Record<string, unknown>;
 			errorText?: string;
 		}
-	| {
-			kind: "status";
-			label: string;
-			isActive: boolean;
-		};
+;
 
 /* ─── Media / file type helpers ─── */
 
@@ -498,6 +495,10 @@ type VisualItem =
 			type: "media-group";
 			mediaKind: "image" | "video" | "pdf" | "audio";
 			items: Array<{ path: string; tool: ToolPart }>;
+		}
+	| {
+			type: "fetch-group";
+			items: ToolPart[];
 		};
 
 function groupToolSteps(tools: ToolPart[]): VisualItem[] {
@@ -534,6 +535,26 @@ function groupToolSteps(tools: ToolPart[]): VisualItem[] {
 				items: group,
 			});
 			i = j;
+		} else if (kind === "fetch") {
+			// Group consecutive fetch tools into a single compact card
+			const group: ToolPart[] = [tool];
+			let j = i + 1;
+			while (j < tools.length) {
+				const next = tools[j];
+				const nextKind = classifyTool(next.toolName, next.args);
+				if (nextKind === "fetch") {
+					group.push(next);
+					j++;
+				} else {
+					break;
+				}
+			}
+			if (group.length > 1) {
+				result.push({ type: "fetch-group", items: group });
+			} else {
+				result.push({ type: "tool", tool });
+			}
+			i = j;
 		} else {
 			result.push({ type: "tool", tool });
 			i++;
@@ -550,8 +571,7 @@ export function ChainOfThought({ parts, isStreaming }: { parts: ChainPart[]; isS
 	const isActive = parts.some(
 		(p) =>
 			(p.kind === "reasoning" && p.isStreaming) ||
-			(p.kind === "tool" && p.status === "running") ||
-			(p.kind === "status" && p.isActive),
+			(p.kind === "tool" && p.status === "running"),
 	);
 
 	/* ─── Live elapsed-time tracking ─── */
@@ -595,10 +615,6 @@ export function ChainOfThought({ parts, isStreaming }: { parts: ChainPart[]; isS
 		}
 	}, [isStreaming, parts.length]);
 
-	const statusParts = parts.filter(
-		(p): p is Extract<ChainPart, { kind: "status" }> =>
-			p.kind === "status",
-	);
 	const reasoningText = parts
 		.filter(
 			(p): p is Extract<ChainPart, { kind: "reasoning" }> =>
@@ -615,16 +631,10 @@ export function ChainOfThought({ parts, isStreaming }: { parts: ChainPart[]; isS
 	);
 	const visualItems = groupToolSteps(tools);
 
-	// Derive a more descriptive header from status parts
-	const activeStatus = statusParts.find((s) => s.isActive);
 	const headerLabel = isActive
-		? activeStatus
-			? elapsed > 0
-				? `${activeStatus.label} ${formatDuration(elapsed)}`
-				: activeStatus.label
-			: elapsed > 0
-				? `Thinking... ${formatDuration(elapsed)}`
-				: "Thinking..."
+		? elapsed > 0
+			? `Thinking for ${formatDuration(elapsed)}`
+			: "Thinking..."
 		: elapsed > 0
 			? `Thought for ${formatDuration(elapsed)}`
 			: "Thought";
@@ -642,12 +652,6 @@ export function ChainOfThought({ parts, isStreaming }: { parts: ChainPart[]; isS
 				<span className="font-medium">
 					{headerLabel}
 				</span>
-				{isActive && (
-					<span
-						className="w-1.5 h-1.5 rounded-full animate-pulse flex-shrink-0"
-						style={{ background: "var(--color-accent)" }}
-					/>
-				)}
 				<ChevronIcon
 					className={`w-3.5 h-3.5 ml-1 flex-shrink-0 transition-transform duration-200 ${
 						isOpen ? "" : "-rotate-90"
@@ -656,83 +660,112 @@ export function ChainOfThought({ parts, isStreaming }: { parts: ChainPart[]; isS
 			</button>
 
 			{/* Collapsible content */}
-			<div
-				className="grid transition-[grid-template-rows] duration-200 ease-out"
-				style={{
-					gridTemplateRows: isOpen ? "1fr" : "0fr",
-				}}
-			>
-				<div className="overflow-hidden">
-					<div className="relative pt-2 pb-1">
-						{/* Timeline connector line */}
-						<div
-							className="absolute w-px"
-							style={{
-								left: 9,
-								top: 16,
-								bottom: 8,
-								background: "var(--color-border)",
-							}}
-						/>
-						{statusParts.map((sp, idx) => (
-							<StatusStep
-								key={`status-${idx}`}
-								label={sp.label}
-								isActive={sp.isActive}
+			<AnimatePresence initial={false}>
+				{isOpen && (
+					<motion.div
+						key="content"
+						initial={{ height: 0, opacity: 0 }}
+						animate={{ height: "auto", opacity: 1 }}
+						exit={{ height: 0, opacity: 0 }}
+						transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
+						className="overflow-hidden"
+					>
+						<div className="relative pt-2 pb-1">
+							{/* Timeline connector line */}
+							<div
+								className="absolute w-px"
+								style={{
+									left: 9,
+									top: 16,
+									bottom: 8,
+									background: "var(--color-border)",
+								}}
 							/>
-						))}
-						{reasoningText && (
-							<div className="flex items-start gap-2.5 py-1.5">
-								<div
-									className="relative z-10 flex-shrink-0 w-5 h-5 mt-0.5 flex items-center justify-center rounded-full"
-									style={{
-										background: "var(--color-bg)",
-									}}
+							<AnimatePresence initial={false}>
+							{reasoningText && (
+								<motion.div
+									key="reasoning"
+									initial={{ opacity: 0, y: 6 }}
+									animate={{ opacity: 1, y: 0 }}
+									transition={{ duration: 0.25, ease: "easeOut" }}
+									className="flex items-start gap-2.5 py-1.5"
 								>
-									<svg
-										width="14"
-										height="14"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="var(--color-text-muted)"
-										strokeWidth="2"
-										strokeLinecap="round"
-										strokeLinejoin="round"
+									<div
+										className="relative z-10 flex-shrink-0 w-5 h-5 mt-0.5 flex items-center justify-center rounded-full"
+										style={{
+											background: "var(--color-bg)",
+										}}
 									>
-										<path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z" />
-										<path d="M10 21h4" />
-									</svg>
-								</div>
-								<div className="flex-1 min-w-0">
-									<ReasoningBlock
-										text={reasoningText}
-										isStreaming={
-											isReasoningStreaming
-										}
-									/>
-								</div>
-							</div>
-						)}
-						{visualItems.map((item, idx) => {
-							if (item.type === "media-group") {
+										<svg
+											width="14"
+											height="14"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="var(--color-text-muted)"
+											strokeWidth="2"
+											strokeLinecap="round"
+											strokeLinejoin="round"
+										>
+											<path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z" />
+											<path d="M10 21h4" />
+										</svg>
+									</div>
+									<div className="flex-1 min-w-0">
+										<ReasoningBlock
+											text={reasoningText}
+											isStreaming={
+												isReasoningStreaming
+											}
+										/>
+									</div>
+								</motion.div>
+							)}
+							{visualItems.map((item, idx) => {
+								if (item.type === "media-group") {
+									return (
+										<motion.div
+											key={`media-${idx}`}
+											initial={{ opacity: 0, y: 6 }}
+											animate={{ opacity: 1, y: 0 }}
+											transition={{ duration: 0.25, ease: "easeOut" }}
+										>
+											<MediaGroup
+												mediaKind={item.mediaKind}
+												items={item.items}
+											/>
+										</motion.div>
+									);
+								}
+								if (item.type === "fetch-group") {
+									return (
+										<motion.div
+											key={`fetch-${idx}`}
+											initial={{ opacity: 0, y: 6 }}
+											animate={{ opacity: 1, y: 0 }}
+											transition={{ duration: 0.25, ease: "easeOut" }}
+										>
+											<FetchGroup items={item.items} />
+										</motion.div>
+									);
+								}
 								return (
-									<MediaGroup
-										key={idx}
-										mediaKind={item.mediaKind}
-										items={item.items}
-									/>
+									<motion.div
+										key={item.tool.toolCallId}
+										initial={{ opacity: 0, y: 6 }}
+										animate={{ opacity: 1, y: 0 }}
+										transition={{ duration: 0.25, ease: "easeOut" }}
+									>
+										<ToolStep
+											{...item.tool}
+										/>
+									</motion.div>
 								);
-							}
-							return (
-								<ToolStep
-									key={item.tool.toolCallId}
-									{...item.tool}
-								/>
-							);
-						})}
-					</div>
-				</div>
-			</div>
+							})}
+							</AnimatePresence>
+						</div>
+					</motion.div>
+				)}
+			</AnimatePresence>
 		</div>
 	);
 }
@@ -746,17 +779,10 @@ function ReasoningBlock({
 	text: string;
 	isStreaming: boolean;
 }) {
-	const [expanded, setExpanded] = useState(false);
-	const isLong = text.length > 400;
-
 	return (
 		<div className="mb-2">
 			<div
-				className={`text-[13px] whitespace-pre-wrap leading-relaxed ${
-					!expanded && isLong
-						? "max-h-24 overflow-hidden"
-						: ""
-				}`}
+				className="text-[13px] whitespace-pre-wrap leading-relaxed"
 				style={{ color: "var(--color-text-secondary)" }}
 			>
 				{text}
@@ -769,36 +795,23 @@ function ReasoningBlock({
 					/>
 				)}
 			</div>
-			{isLong && !expanded && (
-				<button
-					type="button"
-					onClick={() => setExpanded(true)}
-					className="text-[12px] hover:underline mt-1 cursor-pointer"
-					style={{ color: "var(--color-accent)" }}
-				>
-					Show more
-				</button>
-			)}
 		</div>
 	);
 }
 
-/* ─── Status step (lifecycle / compaction indicators) ─── */
+/* ─── Fetch group (consecutive web fetches in one compact card) ─── */
 
-function StatusStep({
-	label,
-	isActive,
-}: {
-	label: string;
-	isActive: boolean;
-}) {
+function FetchGroup({ items }: { items: ToolPart[] }) {
+	const anyRunning = items.some((t) => t.status === "running");
+	const doneCount = items.filter((t) => t.status === "done").length;
+
 	return (
-		<div className="flex items-center gap-2.5 py-1.5">
+		<div className="flex items-start gap-2.5 py-1.5">
 			<div
-				className="relative z-10 flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-full"
+				className="relative z-10 flex-shrink-0 w-5 h-5 mt-0.5 flex items-center justify-center rounded-full"
 				style={{ background: "var(--color-bg)" }}
 			>
-				{isActive ? (
+				{anyRunning ? (
 					<span
 						className="w-4 h-4 border-[1.5px] rounded-full animate-spin"
 						style={{
@@ -807,32 +820,127 @@ function StatusStep({
 						}}
 					/>
 				) : (
-					<svg
-						width="16"
-						height="16"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="var(--color-success, var(--color-accent))"
-						strokeWidth="2"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-					>
-						<path d="M20 6 9 17l-5-5" />
-					</svg>
+					<StepIcon kind="fetch" />
 				)}
 			</div>
-			<span
-				className="text-[13px] leading-snug"
-				style={{
-					color: isActive
-						? "var(--color-text)"
-						: "var(--color-text-secondary)",
-				}}
-			>
-				{label}
-			</span>
+			<div className="flex-1 min-w-0">
+				<div
+					className="text-[13px] leading-snug mb-1.5 flex items-center justify-between"
+					style={{
+						color: anyRunning
+							? "var(--color-text)"
+							: "var(--color-text-secondary)",
+					}}
+				>
+					<span>
+						{anyRunning
+							? `Fetching ${items.length} sources...`
+							: `Fetched ${items.length} sources`}
+					</span>
+					{!anyRunning && (
+						<span
+							className="text-[11px]"
+							style={{ color: "var(--color-text-muted)" }}
+						>
+							{doneCount} {doneCount === 1 ? "result" : "results"}
+						</span>
+					)}
+				</div>
+				<div
+					className="rounded-2xl overflow-hidden"
+					style={{
+						background: "rgba(255, 255, 255, 0.5)",
+						border: "1px solid var(--color-border)",
+					}}
+				>
+					{items.map((tool, i) => {
+						const { domain, url } = getFetchDomainAndUrl(tool.args, tool.output);
+						return (
+							<a
+								key={tool.toolCallId}
+								href={url ?? undefined}
+								target="_blank"
+								rel="noopener noreferrer"
+								className="flex items-center gap-2.5 px-3 py-2.5 text-[12px] no-underline"
+								style={{
+									color: "var(--color-text)",
+									cursor: url ? "pointer" : "default",
+								}}
+								onMouseEnter={(e) => { e.currentTarget.style.background = "var(--color-surface-hover)"; }}
+								onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+								onClick={url ? undefined : (e) => e.preventDefault()}
+							>
+								{domain ? (
+									/* eslint-disable-next-line @next/next/no-img-element */
+									<img
+										src={faviconUrl(domain)}
+										alt=""
+										width={16}
+										height={16}
+										className="rounded-sm flex-shrink-0"
+										loading="lazy"
+									/>
+								) : (
+									<div
+										className="w-4 h-4 rounded-sm flex-shrink-0"
+										style={{ background: "var(--color-surface-hover)" }}
+									/>
+								)}
+								<span
+									className="flex-1 min-w-0 truncate"
+									style={{ color: "var(--color-text)" }}
+								>
+									{domain?.replace(/^www\./, "") ?? "Loading..."}
+								</span>
+								{tool.status === "running" ? (
+									<span
+										className="w-2 h-2 rounded-full animate-pulse flex-shrink-0"
+										style={{ background: "var(--color-accent)" }}
+									/>
+								) : url ? (
+									<span
+										className="text-[11px] truncate max-w-[45%] text-right"
+										style={{ color: "var(--color-text-muted)" }}
+										title={url}
+									>
+										{url}
+									</span>
+								) : null}
+							</a>
+						);
+					})}
+				</div>
+			</div>
 		</div>
 	);
+}
+
+/** Extract domain and full URL from fetch tool args/output */
+function getFetchDomainAndUrl(
+	args?: Record<string, unknown>,
+	output?: Record<string, unknown>,
+): { domain: string | null; url: string | null } {
+	for (const key of ["url", "targetUrl", "path", "src"]) {
+		const v = args?.[key];
+		if (typeof v === "string" && v.startsWith("http")) {
+			try {
+				return { domain: new URL(v).hostname, url: v };
+			} catch {
+				/* skip */
+			}
+		}
+	}
+	for (const key of ["url", "finalUrl", "targetUrl"]) {
+		const v = output?.[key];
+		if (typeof v === "string" && v.startsWith("http")) {
+			try {
+				return { domain: new URL(v).hostname, url: v };
+			} catch {
+				/* skip */
+			}
+		}
+	}
+	return { domain: null, url: null };
 }
 
 /* ─── Media group (images, videos, PDFs, audio) ─── */

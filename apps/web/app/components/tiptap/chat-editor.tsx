@@ -212,6 +212,7 @@ export const ChatEditor = forwardRef<ChatEditorHandle, ChatEditorProps>(
 				}),
 				Placeholder.configure({
 					placeholder: placeholder ?? "Ask anything...",
+					showOnlyWhenEditable: false,
 				}),
 				FileMentionNode,
 				createChatFileMentionSuggestion(),
@@ -361,6 +362,11 @@ export const ChatEditor = forwardRef<ChatEditorHandle, ChatEditorProps>(
 						padding: ${compact ? "10px 12px" : "14px 16px"};
 						font-size: ${compact ? "12px" : "14px"};
 						line-height: 1.5;
+						transition: opacity 0.15s ease;
+					}
+					.chat-editor-content[contenteditable="false"] {
+						opacity: 0.5;
+						cursor: not-allowed;
 					}
 					.chat-editor-content p {
 						margin: 0;

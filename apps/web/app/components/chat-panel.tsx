@@ -526,10 +526,39 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 			status === "submitted" ||
 			isReconnecting;
 
-		// Auto-scroll to bottom on new messages
+		// Auto-scroll to bottom on new messages, but only when the user
+		// is already near the bottom.  If the user scrolls up during
+		// streaming, we stop auto-scrolling until they return to the
+		// bottom (or a new user message is sent).
+		const scrollContainerRef = useRef<HTMLDivElement>(null);
+		const userScrolledAwayRef = useRef(false);
+		const scrollRafRef = useRef(0);
+
+		// Detect when the user scrolls away from the bottom.
 		useEffect(() => {
-			messagesEndRef.current?.scrollIntoView({
-				behavior: "smooth",
+			const el = scrollContainerRef.current;
+			if (!el) {return;}
+
+			const onScroll = () => {
+				const distanceFromBottom =
+					el.scrollHeight - el.scrollTop - el.clientHeight;
+				// Threshold: if within 80px of the bottom, consider "at bottom"
+				userScrolledAwayRef.current = distanceFromBottom > 80;
+			};
+
+			el.addEventListener("scroll", onScroll, { passive: true });
+			return () => el.removeEventListener("scroll", onScroll);
+		}, []);
+
+		// Auto-scroll effect — skips when user has scrolled away.
+		useEffect(() => {
+			if (userScrolledAwayRef.current) {return;}
+			if (scrollRafRef.current) {return;}
+			scrollRafRef.current = requestAnimationFrame(() => {
+				scrollRafRef.current = 0;
+				messagesEndRef.current?.scrollIntoView({
+					behavior: "smooth",
+				});
 			});
 		}, [messages]);
 
@@ -907,6 +936,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 					isFirstFileMessageRef.current = false;
 				}
 
+			// Reset scroll lock so we auto-scroll to the new user message
+			userScrolledAwayRef.current = false;
 			void sendMessage({ text: messageText });
 		},
 			[
@@ -1120,13 +1151,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 		// ── Render ──
 
 		return (
-			<div className="flex flex-col h-full">
-				{/* Header */}
+			<div
+				ref={scrollContainerRef}
+				className="h-full overflow-y-auto"
+			>
+				<div className="flex flex-col min-h-full">
+				{/* Header — sticky glass bar */}
 				<header
-					className={`${compact ? "px-3 py-2" : "px-6 py-3"} border-b flex items-center justify-between flex-shrink-0`}
+					className={`${compact ? "px-3 py-2" : "px-6 py-3"} flex items-center justify-between sticky top-0 z-20 backdrop-blur-md`}
 					style={{
-						borderColor: "var(--color-border)",
-						background: "var(--color-surface)",
+						background: "var(--color-bg-glass)",
 					}}
 				>
 					<div className="min-w-0 flex-1">
@@ -1172,7 +1206,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 							</>
 						)}
 					</div>
-					<div className="flex gap-1 flex-shrink-0">
+					<div className="flex gap-1 shrink-0">
 						{compact && (
 							<button
 								type="button"
@@ -1198,30 +1232,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 								</svg>
 							</button>
 						)}
-						{isStreaming && (
-							<button
-								type="button"
-								onClick={() => handleStop()}
-								className={`${compact ? "px-2 py-0.5 text-[10px]" : "px-3 py-1 text-xs"} rounded-full font-medium`}
-								style={{
-									background:
-										"var(--color-surface-hover)",
-									color: "var(--color-text)",
-									border: "1px solid var(--color-border)",
-								}}
-							>
-								Stop
-							</button>
-						)}
 					</div>
 				</header>
 
 				{/* File-scoped session tabs (compact mode) */}
 				{compact && fileContext && fileSessions.length > 0 && (
 					<div
-						className="px-2 py-1.5 border-b flex gap-1 overflow-x-auto flex-shrink-0"
+						className="px-2 py-1.5 border-b flex gap-1 overflow-x-auto sticky top-[41px] z-20 backdrop-blur-md"
 						style={{
 							borderColor: "var(--color-border)",
+							background: "var(--color-bg-glass)",
 						}}
 					>
 						{fileSessions.slice(0, 10).map((s) => (
@@ -1231,7 +1251,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 								onClick={() =>
 									handleSessionSelect(s.id)
 								}
-								className="px-2.5 py-1 text-[10px] rounded-full whitespace-nowrap flex-shrink-0 font-medium"
+								className="px-2.5 py-1 text-[10px] rounded-full whitespace-nowrap shrink-0 font-medium"
 								style={{
 									background:
 										s.id === currentSessionId
@@ -1257,10 +1277,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 
 				{/* Messages */}
 				<div
-					className={`flex-1 overflow-y-auto ${compact ? "px-3" : "px-6"}`}
+					className={`flex-1 ${compact ? "px-3" : "px-6"}`}
 				>
 					{loadingSession ? (
-						<div className="flex items-center justify-center h-full">
+						<div className="flex items-center justify-center h-full min-h-[60vh]">
 							<div className="text-center">
 								<div
 									className="w-6 h-6 border-2 rounded-full animate-spin mx-auto mb-3"
@@ -1282,7 +1302,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 							</div>
 						</div>
 					) : messages.length === 0 ? (
-						<div className="flex items-center justify-center h-full">
+						<div className="flex items-center justify-center h-full min-h-[60vh]">
 							<div className="text-center max-w-md px-4">
 								{compact ? (
 									<p
@@ -1319,7 +1339,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 						</div>
 					) : (
 						<div
-							className={`${compact ? "" : "max-w-3xl mx-auto"} py-3`}
+							className={`${compact ? "" : "max-w-2xl mx-auto"} py-3`}
 						>
 							{messages.map((message, i) => (
 								<ChatMessage
@@ -1336,7 +1356,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 				{/* Transport-level error display */}
 				{error && (
 					<div
-						className="px-3 py-2 border-t flex-shrink-0 flex items-center gap-2"
+						className="px-3 py-2 flex items-center gap-2 sticky bottom-[72px] z-10"
 						style={{
 							background: `color-mix(in srgb, var(--color-error) 6%, var(--color-surface))`,
 							borderColor: `color-mix(in srgb, var(--color-error) 18%, transparent)`,
@@ -1352,7 +1372,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 							strokeWidth="2"
 							strokeLinecap="round"
 							strokeLinejoin="round"
-							className="flex-shrink-0"
+							className="shrink-0"
 						>
 							<circle cx="12" cy="12" r="10" />
 							<line
@@ -1372,20 +1392,21 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 					</div>
 				)}
 
-				{/* Input — Dench-style rounded area with toolbar */}
+				{/* Input — sticky glass bar at bottom */}
 				<div
-					className={`${compact ? "px-3 py-2" : "px-6 py-4"} flex-shrink-0`}
-					style={{ background: "var(--color-bg)" }}
+					className={`${compact ? "px-3 py-2" : "px-6 pb-5 pt-0"} sticky bottom-0 z-20 backdrop-blur-md`}
+					style={{ background: "var(--color-bg-glass)" }}
 				>
 					<div
-						className={compact ? "" : "max-w-3xl mx-auto"}
+						className={compact ? "" : "max-w-[720px] mx-auto"}
 					>
 						<div
-							className="rounded-2xl overflow-hidden"
+							className="rounded-3xl overflow-hidden"
 							style={{
 								background:
 									"var(--color-chat-input-bg)",
 								border: "1px solid var(--color-border)",
+								boxShadow: "0 0 32px rgba(0,0,0,0.07)",
 							}}
 							onDragOver={(e) => {
 								if (e.dataTransfer?.types.includes("application/x-file-mention")) {
@@ -1476,54 +1497,70 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 										</svg>
 									</button>
 								</div>
-							{/* Send button */}
-							<button
-								type="button"
-								onClick={() => {
-									editorRef.current?.submit();
-								}}
-								disabled={
-									(editorEmpty &&
-										attachedFiles.length ===
-											0) ||
-									isStreaming ||
-									loadingSession ||
-									startingNewSession
-								}
-								className={`${compact ? "w-6 h-6" : "w-7 h-7"} rounded-full flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed`}
-								style={{
-									background:
-										!editorEmpty ||
-										attachedFiles.length >
-											0
-											? "var(--color-accent)"
-											: "var(--color-border-strong)",
-									color: "white",
-								}}
+							{/* Send / Stop button */}
+							{isStreaming ? (
+								<button
+									type="button"
+									onClick={() => handleStop()}
+									className={`${compact ? "w-6 h-6" : "w-7 h-7"} rounded-full flex items-center justify-center`}
+									style={{
+										background: "var(--color-text)",
+										color: "var(--color-bg)",
+									}}
+									title="Stop generating"
 								>
-									{isStreaming ? (
-										<div
-											className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"
-										/>
-									) : (
-										<svg
-											width="14"
-											height="14"
-											viewBox="0 0 24 24"
-											fill="none"
-											stroke="currentColor"
-											strokeWidth="2.5"
-											strokeLinecap="round"
-											strokeLinejoin="round"
-										>
-											<path d="M12 19V5" />
-											<path d="m5 12 7-7 7 7" />
-										</svg>
-									)}
+									<svg
+										width="8"
+										height="8"
+										viewBox="0 0 10 10"
+										fill="currentColor"
+									>
+										<rect width="10" height="10" rx="1.5" />
+									</svg>
 								</button>
+							) : (
+								<button
+									type="button"
+									onClick={() => {
+										editorRef.current?.submit();
+									}}
+									disabled={
+										(editorEmpty &&
+											attachedFiles.length ===
+												0) ||
+										loadingSession ||
+										startingNewSession
+									}
+									className={`${compact ? "w-6 h-6" : "w-7 h-7"} rounded-full flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed`}
+									style={{
+										background:
+											!editorEmpty ||
+											attachedFiles.length >
+												0
+												? "var(--color-accent)"
+												: "var(--color-border-strong)",
+										color: "white",
+									}}
+								>
+									<svg
+										width="14"
+										height="14"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										strokeWidth="2.5"
+										strokeLinecap="round"
+										strokeLinejoin="round"
+									>
+										<path d="M12 19V5" />
+										<path d="m5 12 7-7 7 7" />
+									</svg>
+								</button>
+							)}
 							</div>
 						</div>
 					</div>
+				</div>
 				</div>
 
 				{/* File picker modal */}

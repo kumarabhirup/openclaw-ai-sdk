@@ -6,9 +6,9 @@
 
 :root {
   /* Background / Surface */
-  --color-bg: #f5f5f0;
+  --color-bg: #f5f5f4;
   --color-surface: #ffffff;
-  --color-surface-hover: #f0efeb;
+  --color-surface-hover: #f5f4f1;
   --color-surface-raised: #ffffff;
 
   /* Borders */
@@ -21,14 +21,14 @@
   --color-text-muted: #8a8a82;
 
   /* Accent (blue) */
-  --color-accent: #2563eb;
+  --color-accent: rgba(37, 99, 235, 0.9);
   --color-accent-hover: #1d4ed8;
   --color-accent-light: rgba(37, 99, 235, 0.08);
 
   /* Chat */
-  --color-user-bubble: #e9e5dd;
+  --color-user-bubble: #eae8e4;
   --color-user-bubble-text: #1c1c1a;
-  --color-chat-input-bg: #eeeee8;
+  --color-chat-input-bg: rgba(255, 255, 255, 0.8);
 
   /* Semantic */
   --color-success: #16a34a;
@@ -39,6 +39,7 @@
   /* Glassmorphism */
   --color-glass: rgba(255, 255, 255, 0.72);
   --color-glass-border: rgba(255, 255, 255, 0.85);
+  --color-bg-glass: rgba(245, 245, 244, 0.8);
 
   /* Object type chips */
   --color-chip-object: rgba(37, 99, 235, 0.08);
@@ -62,7 +63,7 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
   --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
   --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.08);
-  --shadow-xl: 0 8px 32px rgba(0, 0, 0, 0.10);
+  --shadow-xl: 0 8px 32px rgba(0, 0, 0, 0.1);
 }
 
 .dark {
@@ -100,6 +101,7 @@
   /* Glassmorphism */
   --color-glass: rgba(22, 22, 21, 0.72);
   --color-glass-border: rgba(255, 255, 255, 0.06);
+  --color-bg-glass: rgba(12, 12, 11, 0.8);
 
   /* Object type chips */
   --color-chip-object: rgba(59, 130, 246, 0.12);
@@ -112,18 +114,18 @@
   --color-chip-report-text: #4ade80;
 
   /* Diff viewer */
-  --diff-add-bg: rgba(34, 197, 94, 0.10);
+  --diff-add-bg: rgba(34, 197, 94, 0.1);
   --diff-add-text: #4ade80;
   --diff-add-badge: #22c55e;
-  --diff-del-bg: rgba(239, 68, 68, 0.10);
+  --diff-del-bg: rgba(239, 68, 68, 0.1);
   --diff-del-text: #f87171;
   --diff-del-badge: #ef4444;
 
   /* Shadow */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.20);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.30);
-  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.40);
-  --shadow-xl: 0 8px 32px rgba(0, 0, 0, 0.50);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
 /* ============================================================
@@ -176,7 +178,9 @@ body {
     "Segoe UI",
     Roboto,
     sans-serif;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 
 /* Font utilities */
@@ -203,7 +207,8 @@ textarea,
 button,
 a,
 [role="button"] {
-  transition-property: background-color, border-color, color, box-shadow, opacity;
+  transition-property:
+    background-color, border-color, color, box-shadow, opacity;
   transition-duration: 0.15s;
   transition-timing-function: ease;
 }
@@ -318,8 +323,8 @@ a,
   margin-bottom: 0.25em;
 }
 
-.workspace-prose li>ul,
-.workspace-prose li>ol {
+.workspace-prose li > ul,
+.workspace-prose li > ol {
   margin-top: 0.25em;
   margin-bottom: 0;
 }
@@ -480,7 +485,12 @@ a,
   margin-top: 0.25em;
 }
 
-.editor-content-area .tiptap ul[data-type="taskList"] li label input[type="checkbox"] {
+.editor-content-area
+  .tiptap
+  ul[data-type="taskList"]
+  li
+  label
+  input[type="checkbox"] {
   appearance: none;
   width: 1em;
   height: 1em;
@@ -490,12 +500,22 @@ a,
   position: relative;
 }
 
-.editor-content-area .tiptap ul[data-type="taskList"] li label input[type="checkbox"]:checked {
+.editor-content-area
+  .tiptap
+  ul[data-type="taskList"]
+  li
+  label
+  input[type="checkbox"]:checked {
   background: var(--color-accent);
   border-color: var(--color-accent);
 }
 
-.editor-content-area .tiptap ul[data-type="taskList"] li label input[type="checkbox"]:checked::after {
+.editor-content-area
+  .tiptap
+  ul[data-type="taskList"]
+  li
+  label
+  input[type="checkbox"]:checked::after {
   content: "";
   position: absolute;
   left: 3px;
@@ -507,7 +527,7 @@ a,
   transform: rotate(45deg);
 }
 
-.editor-content-area .tiptap ul[data-type="taskList"] li>div {
+.editor-content-area .tiptap ul[data-type="taskList"] li > div {
   flex: 1;
 }
 
@@ -845,11 +865,11 @@ a,
   line-height: 1.8;
 }
 
-.chat-prose>*:first-child {
+.chat-prose > *:first-child {
   margin-top: 0;
 }
 
-.chat-prose>*:last-child {
+.chat-prose > *:last-child {
   margin-bottom: 0;
 }
 
@@ -928,12 +948,12 @@ a,
   margin-bottom: 0.2em;
 }
 
-.chat-prose li>p {
+.chat-prose li > p {
   margin-bottom: 0.25em;
 }
 
-.chat-prose li>ul,
-.chat-prose li>ol {
+.chat-prose li > ul,
+.chat-prose li > ol {
   margin-top: 0.2em;
   margin-bottom: 0;
 }

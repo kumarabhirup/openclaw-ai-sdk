@@ -2,6 +2,8 @@
 
 import dynamic from "next/dynamic";
 import type { UIMessage } from "ai";
+import { memo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -97,8 +99,8 @@ function groupParts(parts: UIMessage["parts"]): MessageSegment[] {
 				text: string;
 				state?: string;
 			};
-			// Detect status reasoning blocks emitted by lifecycle/compaction events.
-			// These have short, specific labels — render as status indicators instead.
+			// Skip lifecycle/compaction status labels — they add noise
+			// (e.g. "Preparing response...", "Optimizing session context...")
 			const statusLabels = [
 				"Preparing response...",
 				"Optimizing session context...",
@@ -106,13 +108,7 @@ function groupParts(parts: UIMessage["parts"]): MessageSegment[] {
 			const isStatus = statusLabels.some((l) =>
 				rp.text.startsWith(l),
 			);
-			if (isStatus) {
-				chain.push({
-					kind: "status",
-					label: rp.text.split("\n")[0],
-					isActive: rp.state === "streaming",
-				});
-			} else {
+			if (!isStatus) {
 				chain.push({
 					kind: "reasoning",
 					text: rp.text,
@@ -513,7 +509,7 @@ const mdComponents: Components = {
 
 /* ─── Chat message ─── */
 
-export function ChatMessage({ message, isStreaming }: { message: UIMessage; isStreaming?: boolean }) {
+export const ChatMessage = memo(function ChatMessage({ message, isStreaming }: { message: UIMessage; isStreaming?: boolean }) {
 	const isUser = message.role === "user";
 	const segments = groupParts(message.parts);
 
@@ -533,7 +529,7 @@ export function ChatMessage({ message, isStreaming }: { message: UIMessage; isSt
 		return (
 			<div className="flex justify-end py-2">
 				<div
-					className="font-bookerly max-w-[80%] rounded-2xl rounded-br-sm px-4 py-2.5 text-[17px] leading-9"
+					className="font-bookerly max-w-[80%] rounded-2xl rounded-br-sm px-4 py-2.5 text-sm leading-6"
 					style={{
 						background: "var(--color-user-bubble)",
 						color: "var(--color-user-bubble-text)",
@@ -564,9 +560,15 @@ export function ChatMessage({ message, isStreaming }: { message: UIMessage; isSt
 		);
 	}
 
+	// Find the last text segment index for streaming optimization
+	const lastTextIdx = isStreaming
+		? segments.reduce((acc, s, i) => (s.type === "text" ? i : acc), -1)
+		: -1;
+
 	// Assistant: free-flowing text, left-aligned, NO bubble
 	return (
 		<div className="py-3 space-y-2">
+			<AnimatePresence initial={false}>
 			{segments.map((segment, index) => {
 				if (segment.type === "text") {
 					// Detect agent error messages
@@ -623,10 +625,32 @@ export function ChatMessage({ message, isStreaming }: { message: UIMessage; isSt
 							</div>
 						);
 					}
+
+					// During streaming, render the active text as plain text
+					// to avoid expensive ReactMarkdown re-parses on every token.
+					// Switch to full markdown once streaming ends.
+					if (index === lastTextIdx) {
+						return (
+							<motion.div
+								key={`text-${index}`}
+								initial={{ opacity: 0, y: 4 }}
+								animate={{ opacity: 1, y: 0 }}
+								transition={{ duration: 0.2, ease: "easeOut" }}
+								className="chat-prose font-bookerly text-sm whitespace-pre-wrap"
+								style={{ color: "var(--color-text)" }}
+							>
+								{segment.text}
+							</motion.div>
+						);
+					}
+
 				return (
-			<div
-				key={index}
-				className="chat-prose font-bookerly text-[17px]"
+			<motion.div
+				key={`text-${index}`}
+				initial={{ opacity: 0, y: 4 }}
+				animate={{ opacity: 1, y: 0 }}
+				transition={{ duration: 0.2, ease: "easeOut" }}
+				className="chat-prose font-bookerly text-sm"
 				style={{ color: "var(--color-text)" }}
 			>
 				<ReactMarkdown
@@ -635,33 +659,48 @@ export function ChatMessage({ message, isStreaming }: { message: UIMessage; isSt
 				>
 					{segment.text}
 				</ReactMarkdown>
-			</div>
+			</motion.div>
 				);
 				}
 			if (segment.type === "report-artifact") {
 				return (
-					<ReportCard
-						key={index}
-						config={segment.config}
-					/>
+					<motion.div
+						key={`report-${index}`}
+						initial={{ opacity: 0, y: 4 }}
+						animate={{ opacity: 1, y: 0 }}
+						transition={{ duration: 0.2, ease: "easeOut" }}
+					>
+						<ReportCard config={segment.config} />
+					</motion.div>
 				);
 			}
 			if (segment.type === "diff-artifact") {
 				return (
-					<DiffCard
-						key={index}
-						diff={segment.diff}
-					/>
+					<motion.div
+						key={`diff-${index}`}
+						initial={{ opacity: 0, y: 4 }}
+						animate={{ opacity: 1, y: 0 }}
+						transition={{ duration: 0.2, ease: "easeOut" }}
+					>
+						<DiffCard diff={segment.diff} />
+					</motion.div>
 				);
 			}
 				return (
-					<ChainOfThought
-						key={index}
-						parts={segment.parts}
-						isStreaming={isStreaming}
-					/>
+					<motion.div
+						key={`chain-${index}`}
+						initial={{ opacity: 0, y: 4 }}
+						animate={{ opacity: 1, y: 0 }}
+						transition={{ duration: 0.2, ease: "easeOut" }}
+					>
+						<ChainOfThought
+							parts={segment.parts}
+							isStreaming={isStreaming}
+						/>
+					</motion.div>
 				);
 			})}
+			</AnimatePresence>
 		</div>
 	);
-}
+});
